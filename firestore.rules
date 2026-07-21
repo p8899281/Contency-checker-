@@ -1,0 +1,50 @@
+rules_version = '2';
+
+// =============================================================================
+// Firestore Security Rules — Study Planner
+// -----------------------------------------------------------------------------
+// Collections used by this app:
+//   students/{uid}        one document per student, keyed by Firebase Auth UID
+//   usernames/{studentId} public lookup so "Student ID -> hidden email" works
+//                         during login, before the student is signed in
+//   counters/students     a single document that hands out sequential
+//                         Student IDs (STU100001, STU100002, ...)
+//
+// IMPORTANT — read this before deploying:
+//   - `students` is readable by anyone (allow read: if true). This is what
+//     lets the Admin Dashboard list every student. There is no real "admin"
+//     Firebase account in this app (the Admin button just checks a plain
+//     password in the browser), so Firestore itself cannot tell an admin
+//     apart from anyone else. If that's not okay for your use case, see the
+//     README section "Locking the Admin Dashboard down further".
+//   - `counters/students` allows public writes, but ONLY to increase the
+//     `count` field on that one document — needed because a Student ID has
+//     to exist *before* the matching Firebase Auth account does. Worst case
+//     someone spams this and wastes some ID numbers; no student data is
+//     exposed or changed by it.
+// =============================================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /students/{uid} {
+      allow read: if true;
+      allow create: if request.auth != null && request.auth.uid == uid;
+      allow update: if request.auth != null && request.auth.uid == uid;
+      allow delete: if false;
+    }
+
+    match /usernames/{studentId} {
+      allow read: if true;
+      allow create: if request.auth != null;
+      allow update, delete: if false;
+    }
+
+    match /counters/students {
+      allow read: if true;
+      allow write: if request.resource.data.keys().hasOnly(['count'])
+                   && request.resource.data.count is int
+                   && (!resource.data.keys().hasAny(['count']) || request.resource.data.count > resource.data.count);
+    }
+  }
+}
