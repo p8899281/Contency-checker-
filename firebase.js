@@ -44,12 +44,12 @@ import {
    "Config". Copy the object Firebase gives you and paste its values below.
 ============================================================================= */
 const firebaseConfig = {
-  apiKey: "PASTE_YOUR_API_KEY_HERE",
-  authDomain: "PASTE_YOUR_PROJECT_ID.firebaseapp.com",
-  projectId: "PASTE_YOUR_PROJECT_ID",
-  storageBucket: "PASTE_YOUR_PROJECT_ID.appspot.com",
-  messagingSenderId: "PASTE_YOUR_SENDER_ID",
-  appId: "PASTE_YOUR_APP_ID"
+  apiKey: "AIzaSyBT5mAHzDbx58PMR5dJtObOUyt_2tPdzeg",
+  authDomain: "contency-checker.firebaseapp.com",
+  projectId: "contency-checker",
+  storageBucket: "contency-checker.firebasestorage.app",
+  messagingSenderId: "555639281838",
+  appId: "1:555639281838:web:738690a659574455aef53f"
 };
 
 const app = initializeApp(firebaseConfig);
