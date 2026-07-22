@@ -45,6 +45,7 @@ const state = {
     running: false,
     interval: null,
     phase: "focus",
+    selectedMode: "focus", // 👈 ইউজার বর্তমানে কোন মোড ভিউ দেখতে বা এডিট করতে চাইছে
     endAt: null
   },
   selectedDate: todayISO(),
@@ -65,7 +66,7 @@ function loadState(){
     if(saved){
       Object.assign(state, saved);
       state.timer = Object.assign(
-        { mode:"focus", workMinutes:25, breakMinutes:5, remaining:1500, running:false, interval:null, phase:"focus", endAt:null },
+        { mode:"focus", workMinutes:25, breakMinutes:5, remaining:1500, running:false, interval:null, phase:"focus", selectedMode:"focus", endAt:null },
         saved.timer || {}
       );
       state.focusSound = Object.assign({ kind:"none", volume:0.4 }, saved.focusSound || {});
@@ -87,6 +88,7 @@ function saveState(){
       remaining: state.timer.remaining,
       running: state.timer.running,
       phase: state.timer.phase,
+      selectedMode: state.timer.selectedMode,
       endAt: state.timer.endAt
     },
     selectedDate: state.selectedDate,
@@ -307,8 +309,10 @@ function renderTimer(){
   const breakBtn = $("#switchToBreakBtn");
   const input = $("#customMinutes");
 
+  const activeViewMode = state.timer.selectedMode || state.timer.phase;
+
   if(focusBtn && breakBtn){
-    if(state.timer.phase === "focus"){
+    if(activeViewMode === "focus"){
       focusBtn.className = "btn primary";
       breakBtn.className = "btn secondary";
       if(input) input.placeholder = `Focus minutes (e.g. ${state.timer.workMinutes})`;
@@ -860,9 +864,11 @@ function advancePhase(){
   if(finishedPhase === "focus"){
     state.focusSessions.push({ date: todayISO(), minutes: finishedMinutes, timestamp: Date.now() });
     state.timer.phase = "break";
+    state.timer.selectedMode = "break";
     state.timer.remaining = state.timer.breakMinutes * 60;
   }else{
     state.timer.phase = "focus";
+    state.timer.selectedMode = "focus";
     state.timer.remaining = state.timer.workMinutes * 60;
   }
   
@@ -915,14 +921,17 @@ function bindEvents(){
 
   if(focusBtn){
     focusBtn.onclick = () => {
-      stopAlarm();
-      userPausedSound = false;
-      state.timer.phase = "focus";
-      state.timer.running = false;
-      state.timer.endAt = null;
-      state.timer.remaining = state.timer.workMinutes * 60;
-      releaseWakeLock();
-      stopFocusSound();
+      state.timer.selectedMode = "focus";
+      // 👈 টাইমার বন্ধ থাকলে তবেই মোড পরিবর্তনের সাথে সাথে ডিসপ্লে পরিবর্তন হবে
+      if(!state.timer.running){
+        stopAlarm();
+        userPausedSound = false;
+        state.timer.phase = "focus";
+        state.timer.endAt = null;
+        state.timer.remaining = state.timer.workMinutes * 60;
+        releaseWakeLock();
+        stopFocusSound();
+      }
       renderTimer();
       autosave();
     };
@@ -930,14 +939,17 @@ function bindEvents(){
 
   if(breakBtn){
     breakBtn.onclick = () => {
-      stopAlarm();
-      userPausedSound = false;
-      state.timer.phase = "break";
-      state.timer.running = false;
-      state.timer.endAt = null;
-      state.timer.remaining = state.timer.breakMinutes * 60;
-      releaseWakeLock();
-      stopFocusSound();
+      state.timer.selectedMode = "break";
+      // 👈 টাইমার অন থাকলে টাইমার বন্ধ হবে না, শুধু ব্রেক মোডের ইনপুট সেটিং সক্রিয় হবে
+      if(!state.timer.running){
+        stopAlarm();
+        userPausedSound = false;
+        state.timer.phase = "break";
+        state.timer.endAt = null;
+        state.timer.remaining = state.timer.breakMinutes * 60;
+        releaseWakeLock();
+        stopFocusSound();
+      }
       renderTimer();
       autosave();
     };
@@ -987,32 +999,57 @@ function bindEvents(){
     btn.classList.add("active");
     state.timer.workMinutes = Number(btn.dataset.minutes);
     state.timer.breakMinutes = Number(btn.dataset.break);
-    state.timer.remaining = (state.timer.phase === "focus" ? state.timer.workMinutes : state.timer.breakMinutes) * 60;
-    if(state.timer.running) state.timer.endAt = Date.now() + state.timer.remaining*1000;
+
+    const activeViewMode = state.timer.selectedMode || state.timer.phase;
+    if(!state.timer.running){
+      state.timer.remaining = (activeViewMode === "focus" ? state.timer.workMinutes : state.timer.breakMinutes) * 60;
+    }
     autosave();
   }));
 
+  // Single Input Custom Timer Logic
   $("#applyCustomTimer").addEventListener("click", ()=>{
-    const mins = Number($("#customMinutes").value || (state.timer.phase === "focus" ? state.timer.workMinutes : state.timer.breakMinutes));
+    const activeViewMode = state.timer.selectedMode || state.timer.phase;
+    const mins = Number($("#customMinutes").value);
     if(!mins || mins < 1) return;
 
-    if(state.timer.phase === "focus"){
+    if(activeViewMode === "focus"){
       state.timer.workMinutes = mins;
+      if(!state.timer.running && state.timer.phase === "focus"){
+        state.timer.remaining = mins * 60;
+      } else if(state.timer.running && state.timer.phase === "focus"){
+        state.timer.remaining = mins * 60;
+        state.timer.endAt = Date.now() + state.timer.remaining * 1000;
+      }
     }else{
       state.timer.breakMinutes = mins;
+      if(!state.timer.running && state.timer.phase === "break"){
+        state.timer.remaining = mins * 60;
+      } else if(state.timer.running && state.timer.phase === "break"){
+        state.timer.remaining = mins * 60;
+        state.timer.endAt = Date.now() + state.timer.remaining * 1000;
+      }
     }
-    
-    state.timer.remaining = mins * 60;
-    if(state.timer.running) state.timer.endAt = Date.now() + state.timer.remaining*1000;
     
     $("#customMinutes").value = "";
     autosave();
-    toast(`${state.timer.phase === "focus" ? "Focus" : "Break"} timer applied: ${mins} min`);
+    toast(`${activeViewMode === "focus" ? "Focus" : "Break"} timer applied: ${mins} min`);
   });
 
   $("#startTimer").onclick = () => {
     stopAlarm();
     userPausedSound = false;
+
+    // 👈 স্টার্ট বাটন চাপলে তবেই নতুন সিলেক্ট করা মোড চালু হবে
+    if(state.timer.selectedMode){
+      const modeChanged = state.timer.phase !== state.timer.selectedMode;
+      state.timer.phase = state.timer.selectedMode;
+      
+      if(modeChanged || !state.timer.running){
+        state.timer.remaining = (state.timer.phase === "focus" ? state.timer.workMinutes : state.timer.breakMinutes) * 60;
+      }
+    }
+
     state.timer.endAt = Date.now() + state.timer.remaining*1000;
     state.timer.running = true;
     startTimerLoop();
@@ -1020,6 +1057,7 @@ function bindEvents(){
     updateFocusSoundForTimerState();
     autosave();
   };
+
   $("#pauseTimer").onclick = () => {
     evaluateTimer(false);
     state.timer.running = false;
@@ -1028,6 +1066,7 @@ function bindEvents(){
     updateFocusSoundForTimerState();
     autosave();
   };
+
   $("#resumeTimer").onclick = () => {
     stopAlarm();
     userPausedSound = false;
@@ -1038,12 +1077,15 @@ function bindEvents(){
     updateFocusSoundForTimerState();
     autosave();
   };
+
   $("#resetTimer").onclick = () => {
     stopAlarm();
     userPausedSound = false;
     state.timer.running = false;
     state.timer.endAt = null;
-    state.timer.remaining = (state.timer.phase === "focus" ? state.timer.workMinutes : state.timer.breakMinutes) * 60;
+    const activeViewMode = state.timer.selectedMode || state.timer.phase;
+    state.timer.phase = activeViewMode;
+    state.timer.remaining = (activeViewMode === "focus" ? state.timer.workMinutes : state.timer.breakMinutes) * 60;
     releaseWakeLock();
     updateFocusSoundForTimerState();
     autosave();
