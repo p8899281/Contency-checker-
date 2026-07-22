@@ -548,38 +548,15 @@ function notify(title, body){
 }
 
 /* =============================================================================
-   FOCUS SOUND & DYNAMIC NOTIFICATION CONTROLS
+   PURE MP3 FOCUS SOUND & MEDIA SESSION CONTROLS
 ============================================================================= */
-let focusAudioCtx = null;
-let focusNoiseSource = null;
-let focusFilterNode = null;
-let focusGainNode = null;
-let focusOscillators = [];
+let activeCustomAudio = null;
 let focusSoundVolumeBeforeMute = 0.4;
 let focusSoundPlayingKind = null;
-let focusChirpTimeout = null;
-let activeCustomAudio = null;
 let userPausedSound = false;
 
-// 100% Valid Browser Silent Audio Blob (যা অ্যান্ড্রয়েড মিডিয়াসেশন সেশন বজায় রাখবে)
-function createSilentAudioUrl() {
-  const sampleRate = 8000;
-  const numSamples = sampleRate; // 1 sec
-  const buffer = new Uint8Array(44 + numSamples);
-  buffer.set([
-    0x52,0x49,0x46,0x46, 36+numSamples,0,0,0, 0x57,0x41,0x56,0x45, 
-    0x66,0x6d,0x74,0x20, 16,0,0,0, 1,0, 1,0, 0x40,0x1f,0,0, 0x40,0x1f,0,0, 1,0, 8,0, 
-    0x64,0x61,0x74,0x61, numSamples,0,0,0
-  ]);
-  for(let i=0; i<numSamples; i++) buffer[44+i] = 128;
-  return URL.createObjectURL(new Blob([buffer], {type: "audio/wav"}));
-}
-const SILENT_AUDIO_URL = createSilentAudioUrl();
-
 function getAllSoundKinds() {
-  const defaultKinds = ["rain", "brown", "drone", "ocean", "forest", "bowl"];
-  const customKinds = (state.customSounds || []).map(s => s.id);
-  return [...defaultKinds, ...customKinds];
+  return (state.customSounds || []).map(s => s.id);
 }
 
 function switchSoundTrack(direction) {
@@ -599,20 +576,9 @@ function switchSoundTrack(direction) {
 }
 
 function updateMediaSessionMetadata(){
-  if ('mediaSession' in navigator && state.timer.running) {
-    let soundTitle = state.timer.phase === "focus" ? "Focusing" : "Break Time";
-    const kind = state.focusSound.kind;
-    
-    if (kind === "rain") soundTitle = "Soft Rain";
-    else if (kind === "brown") soundTitle = "Brown Noise";
-    else if (kind === "drone") soundTitle = "Deep Focus Drone";
-    else if (kind === "ocean") soundTitle = "Ocean Waves";
-    else if (kind === "forest") soundTitle = "Forest Ambience";
-    else if (kind === "bowl") soundTitle = "Meditation Bowl";
-    else if (kind !== "none") {
-      const custom = state.customSounds.find(s => s.id === kind || s.title === kind);
-      if (custom) soundTitle = custom.title;
-    }
+  if ('mediaSession' in navigator && state.timer.running && activeCustomAudio) {
+    const custom = state.customSounds.find(s => s.id === state.focusSound.kind || s.title === state.focusSound.kind);
+    const soundTitle = custom ? custom.title : "Focus Sound";
 
     navigator.mediaSession.metadata = new MediaMetadata({
       title: `⏱️ ${formatTime(state.timer.remaining)} (${state.timer.phase.toUpperCase()}) · ${soundTitle}`,
@@ -625,7 +591,6 @@ function updateMediaSessionMetadata(){
     navigator.mediaSession.setActionHandler('play', () => {
       userPausedSound = false;
       if (activeCustomAudio) activeCustomAudio.play().catch(()=>{});
-      if (focusAudioCtx && focusAudioCtx.state === "suspended") focusAudioCtx.resume().catch(()=>{});
       if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
       updateFocusSoundForTimerState();
     });
@@ -633,7 +598,6 @@ function updateMediaSessionMetadata(){
     navigator.mediaSession.setActionHandler('pause', () => {
       userPausedSound = true;
       if (activeCustomAudio) activeCustomAudio.pause();
-      if (focusAudioCtx && focusAudioCtx.state === "running") focusAudioCtx.suspend().catch(()=>{});
       if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
     });
 
@@ -642,216 +606,41 @@ function updateMediaSessionMetadata(){
   }
 }
 
-function ensureFocusAudioContext(){
-  if(!focusAudioCtx){
-    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    if(!AudioCtx) return null;
-    focusAudioCtx = new AudioCtx();
-  }
-  return focusAudioCtx;
-}
-
-function buildNoiseBuffer(ctx, color){
-  const bufferSize = 2 * ctx.sampleRate;
-  const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-  const data = buffer.getChannelData(0);
-  if(color === "brown"){
-    let lastOut = 0;
-    for(let i=0;i<bufferSize;i++){
-      const white = Math.random()*2 - 1;
-      lastOut = (lastOut + 0.02*white) / 1.02;
-      data[i] = lastOut * 3.5;
-    }
-  }else{
-    for(let i=0;i<bufferSize;i++) data[i] = Math.random()*2 - 1;
-  }
-  return buffer;
-}
-
 function stopFocusSound(){
   if(activeCustomAudio){
     try{ activeCustomAudio.pause(); activeCustomAudio.currentTime = 0; }catch(e){}
     activeCustomAudio = null;
   }
-  try{ if(focusNoiseSource) focusNoiseSource.stop(); }catch(e){}
-  if(focusNoiseSource){ focusNoiseSource.disconnect(); focusNoiseSource = null; }
-  focusOscillators.forEach(o=>{ try{ o.stop(); }catch(e){} o.disconnect(); });
-  focusOscillators = [];
-  if(focusFilterNode){ focusFilterNode.disconnect(); focusFilterNode = null; }
-  if(focusGainNode){ focusGainNode.disconnect(); focusGainNode = null; }
-  if(focusChirpTimeout){ clearTimeout(focusChirpTimeout); focusChirpTimeout = null; }
   focusSoundPlayingKind = null;
-}
-
-function scheduleForestChirp(ctx, destination){
-  const delay = 2000 + Math.random()*5000;
-  focusChirpTimeout = setTimeout(()=>{
-    if(focusSoundPlayingKind !== "forest") return;
-    const o = ctx.createOscillator();
-    const g = ctx.createGain();
-    o.type = "sine";
-    const base = 1800 + Math.random()*1400;
-    o.frequency.setValueAtTime(base, ctx.currentTime);
-    o.frequency.exponentialRampToValueAtTime(base * 1.4, ctx.currentTime + 0.08);
-    g.gain.setValueAtTime(0.0001, ctx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.18, ctx.currentTime + 0.02);
-    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.18);
-    o.connect(g);
-    g.connect(destination);
-    o.start();
-    o.stop(ctx.currentTime + 0.2);
-    scheduleForestChirp(ctx, destination);
-  }, delay);
 }
 
 function startFocusSound(kind){
   stopFocusSound();
   if(kind === "none") return;
 
-  // ডিফল্ট সিন্থেসাইজড সাউন্ডগুলোর জন্য পারফেক্ট সাইলেন্ট অডিও ফাইল যুক্ত করা হলো
-  if (kind === "rain" || kind === "brown" || kind === "drone" || kind === "ocean" || kind === "forest" || kind === "bowl") {
-    activeCustomAudio = new Audio(SILENT_AUDIO_URL);
-    activeCustomAudio.loop = true;
-    activeCustomAudio.play().catch(()=>{});
-  }
-
-  const ctx = ensureFocusAudioContext();
-  if(!ctx) return;
-  if (ctx.state === "suspended") ctx.resume().catch(()=>{});
-
-  try{
-    focusGainNode = ctx.createGain();
-    focusGainNode.gain.value = state.focusSound.volume;
-    focusGainNode.connect(ctx.destination);
-
-    if(kind === "rain" || kind === "brown"){
-      const buffer = buildNoiseBuffer(ctx, kind === "brown" ? "brown" : "white");
-      focusNoiseSource = ctx.createBufferSource();
-      focusNoiseSource.buffer = buffer;
-      focusNoiseSource.loop = true;
-      focusFilterNode = ctx.createBiquadFilter();
-      focusFilterNode.type = "lowpass";
-      focusFilterNode.frequency.value = kind === "rain" ? 1800 : 500;
-      focusNoiseSource.connect(focusFilterNode);
-      focusFilterNode.connect(focusGainNode);
-      focusNoiseSource.start();
-
-    }else if(kind === "drone"){
-      [110, 165, 220].forEach(freq=>{
-        const o = ctx.createOscillator();
-        o.type = "sine";
-        o.frequency.value = freq;
-        const g = ctx.createGain();
-        g.gain.value = 0.33;
-        o.connect(g);
-        g.connect(focusGainNode);
-        o.start();
-        focusOscillators.push(o);
+  const customSound = state.customSounds.find(s => s.id === kind || s.title === kind);
+  if(customSound && customSound.audioUrl){
+    try {
+      activeCustomAudio = new Audio(customSound.audioUrl);
+      activeCustomAudio.loop = true;
+      activeCustomAudio.volume = state.focusSound.volume;
+      activeCustomAudio.play().then(() => {
+        focusSoundPlayingKind = kind;
+        updateMediaSessionMetadata();
+      }).catch(e => {
+        console.warn("Audio play failed:", e.message);
+        focusSoundPlayingKind = null;
       });
-
-    }else if(kind === "ocean"){
-      const buffer = buildNoiseBuffer(ctx, "white");
-      focusNoiseSource = ctx.createBufferSource();
-      focusNoiseSource.buffer = buffer;
-      focusNoiseSource.loop = true;
-      focusFilterNode = ctx.createBiquadFilter();
-      focusFilterNode.type = "lowpass";
-      focusFilterNode.frequency.value = 900;
-      const waveGain = ctx.createGain();
-      waveGain.gain.value = 0.6;
-      const lfo = ctx.createOscillator();
-      lfo.type = "sine";
-      lfo.frequency.value = 0.15;
-      const lfoDepth = ctx.createGain();
-      lfoDepth.gain.value = 0.4;
-      lfo.connect(lfoDepth);
-      lfoDepth.connect(waveGain.gain);
-      lfo.start();
-      focusOscillators.push(lfo);
-      focusNoiseSource.connect(focusFilterNode);
-      focusFilterNode.connect(waveGain);
-      waveGain.connect(focusGainNode);
-      focusNoiseSource.start();
-
-    }else if(kind === "forest"){
-      const buffer = buildNoiseBuffer(ctx, "white");
-      focusNoiseSource = ctx.createBufferSource();
-      focusNoiseSource.buffer = buffer;
-      focusNoiseSource.loop = true;
-      focusFilterNode = ctx.createBiquadFilter();
-      focusFilterNode.type = "bandpass";
-      focusFilterNode.frequency.value = 700;
-      focusFilterNode.Q.value = 0.5;
-      const bedGain = ctx.createGain();
-      bedGain.gain.value = 0.35;
-      focusNoiseSource.connect(focusFilterNode);
-      focusFilterNode.connect(bedGain);
-      bedGain.connect(focusGainNode);
-      focusNoiseSource.start();
-      scheduleForestChirp(ctx, focusGainNode);
-
-    }else if(kind === "bowl"){
-      const swell = ctx.createGain();
-      swell.gain.value = 0.9;
-      const lfo = ctx.createOscillator();
-      lfo.type = "sine";
-      lfo.frequency.value = 0.08;
-      const lfoDepth = ctx.createGain();
-      lfoDepth.gain.value = 0.35;
-      lfo.connect(lfoDepth);
-      lfoDepth.connect(swell.gain);
-      lfo.start();
-      focusOscillators.push(lfo);
-      swell.connect(focusGainNode);
-      [220, 330.5, 440.7].forEach(freq=>{
-        const o = ctx.createOscillator();
-        o.type = "sine";
-        o.frequency.value = freq;
-        const g = ctx.createGain();
-        g.gain.value = 0.3;
-        o.connect(g);
-        g.connect(swell);
-        o.start();
-        focusOscillators.push(o);
-      });
-
-    }else {
-      // Custom Sound added by Admin
-      const customSound = state.customSounds.find(s => s.id === kind || s.title === kind);
-      if(customSound && customSound.audioUrl){
-        activeCustomAudio = new Audio(customSound.audioUrl);
-        activeCustomAudio.loop = true;
-        activeCustomAudio.volume = state.focusSound.volume;
-        activeCustomAudio.play().catch(e => {
-          console.warn("Audio play failed:", e.message);
-          focusSoundPlayingKind = null;
-        });
-        
-        focusNoiseSource = {
-          stop: () => {
-            if(activeCustomAudio){
-              activeCustomAudio.pause();
-              activeCustomAudio.currentTime = 0;
-              activeCustomAudio = null;
-            }
-          },
-          disconnect: () => {}
-        };
-      }
+    } catch(e) {
+      console.warn("Audio init failed:", e.message);
+      focusSoundPlayingKind = null;
     }
-
-    focusSoundPlayingKind = kind;
-    updateMediaSessionMetadata();
-  }catch(e){
-    console.warn("Focus sound couldn't start:", e.message);
-    focusSoundPlayingKind = null;
   }
 }
 
 function setFocusSoundVolume(v){
   state.focusSound.volume = v;
-  if(focusGainNode) focusGainNode.gain.value = v;
-  if(activeCustomAudio && activeCustomAudio.src !== SILENT_AUDIO_URL) activeCustomAudio.volume = v;
+  if(activeCustomAudio) activeCustomAudio.volume = v;
 }
 
 function updateFocusSoundForTimerState(){
@@ -859,34 +648,32 @@ function updateFocusSoundForTimerState(){
 
   const desiredKind = state.focusSound.kind;
   const shouldPlay = state.timer.running && state.timer.phase === "focus" && desiredKind !== "none";
+
   if(!shouldPlay){
     if(focusSoundPlayingKind !== null) stopFocusSound();
     return;
   }
+
   if(focusSoundPlayingKind !== desiredKind){
     startFocusSound(desiredKind);
+  } else if(activeCustomAudio && activeCustomAudio.paused){
+    activeCustomAudio.play().catch(() => {});
   }
 }
 
 function resumeFocusAudioOnReturn(){
   if(userPausedSound || !state.timer.running || state.timer.phase !== "focus" || state.focusSound.kind === "none") return;
-  
-  const tryPlay = () => {
-    if (focusAudioCtx && focusAudioCtx.state === "suspended") {
-      focusAudioCtx.resume().catch(()=>{});
-    }
-    if (activeCustomAudio && activeCustomAudio.paused) {
-      activeCustomAudio.play().catch(()=>{});
-    }
-    if (focusSoundPlayingKind !== state.focusSound.kind) {
-      startFocusSound(state.focusSound.kind);
-    }
-  };
 
-  tryPlay();
+  if (activeCustomAudio && activeCustomAudio.paused) {
+    activeCustomAudio.play().catch(()=>{});
+  } else if (!activeCustomAudio) {
+    startFocusSound(state.focusSound.kind);
+  }
 
   const unlockOnGesture = () => {
-    if(!userPausedSound) tryPlay();
+    if(!userPausedSound && activeCustomAudio && activeCustomAudio.paused){
+      activeCustomAudio.play().catch(()=>{});
+    }
     document.removeEventListener("click", unlockOnGesture);
     document.removeEventListener("touchstart", unlockOnGesture);
   };
@@ -898,18 +685,10 @@ function renderFocusSoundUI(){
   const select = $("#focusSoundSelect");
   if(!select) return;
 
-  let html = `
-    <option value="none">None</option>
-    <option value="rain">Soft Rain</option>
-    <option value="brown">Brown Noise</option>
-    <option value="drone">Deep Focus Drone</option>
-    <option value="ocean">Ocean Waves</option>
-    <option value="forest">Forest Ambience</option>
-    <option value="bowl">Meditation Bowl</option>
-  `;
+  let html = `<option value="none">None</option>`;
 
   if(state.customSounds && state.customSounds.length > 0){
-    html += `<optgroup label="Custom Admin Sounds">`;
+    html += `<optgroup label="Admin Focus Sounds">`;
     state.customSounds.forEach(s => {
       html += `<option value="${s.id}">${escapeHtml(s.title)}</option>`;
     });
@@ -1397,10 +1176,6 @@ function initApp(){
   if(resumeBtn){
     resumeBtn.onclick = () => {
       userPausedSound = false;
-      const ctx = ensureFocusAudioContext();
-      if(ctx && ctx.state === "suspended"){
-        ctx.resume();
-      }
       focusSoundPlayingKind = null;
       if(resumeModal) resumeModal.hidden = true;
       updateFocusSoundForTimerState();
