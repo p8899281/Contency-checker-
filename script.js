@@ -302,7 +302,7 @@ function renderSettings(){
 function renderTimer(){
   $("#timerDisplay").textContent = formatTime(state.timer.remaining);
   $("#timerMode").textContent = state.timer.phase === "focus" ? "Focus" : "Break";
-  updateMediaSessionMetadata(); // 👈 নোটিফিকেশন বারে লাইভ সময় আপডেট করার লজিক
+  updateMediaSessionMetadata();
 }
 
 function renderTimerActiveState(){
@@ -542,8 +542,8 @@ let focusSoundVolumeBeforeMute = 0.4;
 let focusSoundPlayingKind = null;
 let focusChirpTimeout = null;
 let activeCustomAudio = null;
+let userPausedSound = false; // 👈 ইউজার ম্যানুয়ালি বা নোটিফিকেশন থেকে পজ করেছে কি না তা মনে রাখার ফ্ল্যাগ
 
-/** ⏱️ নোটিফিকেশন বারে লাইভ সময় এবং সাউন্ড নেম দেখানোর ফাংশন */
 function updateMediaSessionMetadata(){
   if ('mediaSession' in navigator && state.timer.running && state.timer.phase === "focus") {
     let soundTitle = "Focus Sound";
@@ -567,12 +567,14 @@ function updateMediaSessionMetadata(){
     });
 
     navigator.mediaSession.setActionHandler('play', () => {
+      userPausedSound = false; // 👈 নোটিফিকেশনে 'Play' চাপলে আন-পজ করা হবে
       if(activeCustomAudio) activeCustomAudio.play().catch(()=>{});
       if(focusAudioCtx) focusAudioCtx.resume().catch(()=>{});
       updateFocusSoundForTimerState();
     });
 
     navigator.mediaSession.setActionHandler('pause', () => {
+      userPausedSound = true; // 👈 নোটিফিকেশনে 'Pause' চাপলে অ্যাপ আর ব্যাকগ্রাউন্ডে অটো-চালু করবে না
       stopFocusSound();
     });
   }
@@ -781,6 +783,9 @@ function setFocusSoundVolume(v){
 }
 
 function updateFocusSoundForTimerState(){
+  // 👈 ইউজার ম্যানুয়ালি বা নোটিফিকেশন থেকে পজ করে রাখলে জোর করে চালু করা হবে না
+  if (userPausedSound) return;
+
   const desiredKind = state.focusSound.kind;
   const shouldPlay = state.timer.running && state.timer.phase === "focus" && desiredKind !== "none";
   if(!shouldPlay){
@@ -789,18 +794,11 @@ function updateFocusSoundForTimerState(){
   }
   if(focusSoundPlayingKind !== desiredKind){
     startFocusSound(desiredKind);
-  } else {
-    if(activeCustomAudio && activeCustomAudio.paused){
-      activeCustomAudio.play().catch(() => {});
-    }
-    if(focusAudioCtx && focusAudioCtx.state === "suspended"){
-      focusAudioCtx.resume().catch(() => {});
-    }
   }
 }
 
 function resumeFocusAudioOnReturn(){
-  if(!state.timer.running || state.timer.phase !== "focus" || state.focusSound.kind === "none") return;
+  if(userPausedSound || !state.timer.running || state.timer.phase !== "focus" || state.focusSound.kind === "none") return;
   
   const tryPlay = () => {
     if (focusAudioCtx && focusAudioCtx.state === "suspended") {
@@ -817,7 +815,7 @@ function resumeFocusAudioOnReturn(){
   tryPlay();
 
   const unlockOnGesture = () => {
-    tryPlay();
+    if(!userPausedSound) tryPlay();
     document.removeEventListener("click", unlockOnGesture);
     document.removeEventListener("touchstart", unlockOnGesture);
   };
@@ -1116,6 +1114,7 @@ function bindEvents(){
 
   $("#startTimer").onclick = () => {
     stopAlarm();
+    userPausedSound = false;
     state.timer.endAt = Date.now() + state.timer.remaining*1000;
     state.timer.running = true;
     startTimerLoop();
@@ -1133,6 +1132,7 @@ function bindEvents(){
   };
   $("#resumeTimer").onclick = () => {
     stopAlarm();
+    userPausedSound = false;
     state.timer.endAt = Date.now() + state.timer.remaining*1000;
     state.timer.running = true;
     startTimerLoop();
@@ -1142,6 +1142,7 @@ function bindEvents(){
   };
   $("#resetTimer").onclick = () => {
     stopAlarm();
+    userPausedSound = false;
     state.timer.running = false;
     state.timer.endAt = null;
     state.timer.phase = "focus";
@@ -1153,6 +1154,7 @@ function bindEvents(){
   $("#stopAlarm").onclick = stopAlarm;
 
   $("#focusSoundSelect").addEventListener("change", (e)=>{
+    userPausedSound = false;
     state.focusSound.kind = e.target.value;
     updateFocusSoundForTimerState();
     autosave();
@@ -1276,6 +1278,7 @@ function initApp(){
 
   if(resumeBtn){
     resumeBtn.onclick = () => {
+      userPausedSound = false;
       const ctx = ensureFocusAudioContext();
       if(ctx && ctx.state === "suspended"){
         ctx.resume();
@@ -1626,7 +1629,7 @@ watchCustomSounds((sounds) => {
   state.customSounds = sounds;
   renderFocusSoundUI();
   renderAdminSounds();
-  if(state.timer.running && state.timer.phase === "focus"){
+  if(state.timer.running && state.timer.phase === "focus" && !userPausedSound){
     focusSoundPlayingKind = null;
     updateFocusSoundForTimerState();
   }
