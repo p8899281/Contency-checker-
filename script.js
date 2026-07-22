@@ -303,7 +303,6 @@ function renderTimer(){
   $("#timerDisplay").textContent = formatTime(state.timer.remaining);
   $("#timerMode").textContent = state.timer.phase === "focus" ? "Focus" : "Break";
   
-  // Dynamic UI for Mode Buttons & Custom Input Placeholder
   const focusBtn = $("#switchToFocusBtn");
   const breakBtn = $("#switchToBreakBtn");
   const input = $("#customMinutes");
@@ -562,7 +561,20 @@ let focusChirpTimeout = null;
 let activeCustomAudio = null;
 let userPausedSound = false;
 
-const SILENT_AUDIO_URI = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=";
+// 100% Valid Browser Silent Audio Blob (যা অ্যান্ড্রয়েড মিডিয়াসেশন সেশন বজায় রাখবে)
+function createSilentAudioUrl() {
+  const sampleRate = 8000;
+  const numSamples = sampleRate; // 1 sec
+  const buffer = new Uint8Array(44 + numSamples);
+  buffer.set([
+    0x52,0x49,0x46,0x46, 36+numSamples,0,0,0, 0x57,0x41,0x56,0x45, 
+    0x66,0x6d,0x74,0x20, 16,0,0,0, 1,0, 1,0, 0x40,0x1f,0,0, 0x40,0x1f,0,0, 1,0, 8,0, 
+    0x64,0x61,0x74,0x61, numSamples,0,0,0
+  ]);
+  for(let i=0; i<numSamples; i++) buffer[44+i] = 128;
+  return URL.createObjectURL(new Blob([buffer], {type: "audio/wav"}));
+}
+const SILENT_AUDIO_URL = createSilentAudioUrl();
 
 function getAllSoundKinds() {
   const defaultKinds = ["rain", "brown", "drone", "ocean", "forest", "bowl"];
@@ -622,6 +634,7 @@ function updateMediaSessionMetadata(){
       userPausedSound = true;
       if (activeCustomAudio) activeCustomAudio.pause();
       if (focusAudioCtx && focusAudioCtx.state === "running") focusAudioCtx.suspend().catch(()=>{});
+      if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
     });
 
     navigator.mediaSession.setActionHandler('previoustrack', () => switchSoundTrack(-1));
@@ -695,8 +708,9 @@ function startFocusSound(kind){
   stopFocusSound();
   if(kind === "none") return;
 
+  // ডিফল্ট সিন্থেসাইজড সাউন্ডগুলোর জন্য পারফেক্ট সাইলেন্ট অডিও ফাইল যুক্ত করা হলো
   if (kind === "rain" || kind === "brown" || kind === "drone" || kind === "ocean" || kind === "forest" || kind === "bowl") {
-    activeCustomAudio = new Audio(SILENT_AUDIO_URI);
+    activeCustomAudio = new Audio(SILENT_AUDIO_URL);
     activeCustomAudio.loop = true;
     activeCustomAudio.play().catch(()=>{});
   }
@@ -837,7 +851,7 @@ function startFocusSound(kind){
 function setFocusSoundVolume(v){
   state.focusSound.volume = v;
   if(focusGainNode) focusGainNode.gain.value = v;
-  if(activeCustomAudio) activeCustomAudio.volume = v;
+  if(activeCustomAudio && activeCustomAudio.src !== SILENT_AUDIO_URL) activeCustomAudio.volume = v;
 }
 
 function updateFocusSoundForTimerState(){
@@ -1199,7 +1213,6 @@ function bindEvents(){
     autosave();
   }));
 
-  // Single Input Custom Timer Logic for Active Mode
   $("#applyCustomTimer").addEventListener("click", ()=>{
     const mins = Number($("#customMinutes").value || (state.timer.phase === "focus" ? state.timer.workMinutes : state.timer.breakMinutes));
     if(!mins || mins < 1) return;
