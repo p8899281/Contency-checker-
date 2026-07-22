@@ -45,7 +45,7 @@ const state = {
     running: false,
     interval: null,
     phase: "focus",
-    selectedMode: "focus", // 👈 ইউজার বর্তমানে কোন মোড ভিউ দেখতে বা এডিট করতে চাইছে
+    selectedMode: "focus",
     endAt: null
   },
   selectedDate: todayISO(),
@@ -628,6 +628,14 @@ function startFocusSound(kind){
       activeCustomAudio = new Audio(customSound.audioUrl);
       activeCustomAudio.loop = true;
       activeCustomAudio.volume = state.focusSound.volume;
+      
+      // 👈 অন্য অ্যাপ অডিও ইন্টারাপ্ট (যেমন ইউটিউব চালু) করলে ফোকাস ইয়েল্ড করবে
+      activeCustomAudio.addEventListener('pause', () => {
+        if ('mediaSession' in navigator) {
+          navigator.mediaSession.playbackState = 'paused';
+        }
+      });
+
       activeCustomAudio.play().then(() => {
         focusSoundPlayingKind = kind;
         updateMediaSessionMetadata();
@@ -660,29 +668,7 @@ function updateFocusSoundForTimerState(){
 
   if(focusSoundPlayingKind !== desiredKind){
     startFocusSound(desiredKind);
-  } else if(activeCustomAudio && activeCustomAudio.paused){
-    activeCustomAudio.play().catch(() => {});
   }
-}
-
-function resumeFocusAudioOnReturn(){
-  if(userPausedSound || !state.timer.running || state.timer.phase !== "focus" || state.focusSound.kind === "none") return;
-
-  if (activeCustomAudio && activeCustomAudio.paused) {
-    activeCustomAudio.play().catch(()=>{});
-  } else if (!activeCustomAudio) {
-    startFocusSound(state.focusSound.kind);
-  }
-
-  const unlockOnGesture = () => {
-    if(!userPausedSound && activeCustomAudio && activeCustomAudio.paused){
-      activeCustomAudio.play().catch(()=>{});
-    }
-    document.removeEventListener("click", unlockOnGesture);
-    document.removeEventListener("touchstart", unlockOnGesture);
-  };
-  document.addEventListener("click", unlockOnGesture, { once: true });
-  document.addEventListener("touchstart", unlockOnGesture, { once: true });
 }
 
 function renderFocusSoundUI(){
@@ -895,7 +881,8 @@ function evaluateTimer(triggerEffects){
     state.timer.remaining = Math.max(0, Math.round((state.timer.endAt - now)/1000));
   }
   
-  updateFocusSoundForTimerState();
+  // 👈 প্রতি ১-সেকেন্ডের অডিও হাইজ্যাক লুপ বন্ধ করা হলো! (যাতে ইউটিউব ক্লাস সুন্দরভাবে প্লে হতে পারে)
+  
   if(completedAny && triggerEffects){
     playAlarm();
     notify("Timer Finished", state.timer.phase === "break" ? "Focus session complete! Time for a break." : "Break finished! Ready to focus?");
@@ -922,7 +909,6 @@ function bindEvents(){
   if(focusBtn){
     focusBtn.onclick = () => {
       state.timer.selectedMode = "focus";
-      // 👈 টাইমার বন্ধ থাকলে তবেই মোড পরিবর্তনের সাথে সাথে ডিসপ্লে পরিবর্তন হবে
       if(!state.timer.running){
         stopAlarm();
         userPausedSound = false;
@@ -940,7 +926,6 @@ function bindEvents(){
   if(breakBtn){
     breakBtn.onclick = () => {
       state.timer.selectedMode = "break";
-      // 👈 টাইমার অন থাকলে টাইমার বন্ধ হবে না, শুধু ব্রেক মোডের ইনপুট সেটিং সক্রিয় হবে
       if(!state.timer.running){
         stopAlarm();
         userPausedSound = false;
@@ -1040,7 +1025,6 @@ function bindEvents(){
     stopAlarm();
     userPausedSound = false;
 
-    // 👈 স্টার্ট বাটন চাপলে তবেই নতুন সিলেক্ট করা মোড চালু হবে
     if(state.timer.selectedMode){
       const modeChanged = state.timer.phase !== state.timer.selectedMode;
       state.timer.phase = state.timer.selectedMode;
@@ -1158,16 +1142,11 @@ function bindEvents(){
   $$('input[name="theme"]').forEach(r=> r.addEventListener("change", e => { state.settings.theme = e.target.value; autosave(); }));
   $("#resetSettings").onclick = ()=>{ state.settings = { theme:"dark", fontSize:16 }; autosave(); };
 
-  window.addEventListener("focus", ()=>{
-    resumeFocusAudioOnReturn();
-  });
-
   document.addEventListener("visibilitychange", ()=>{
     if(!document.hidden){
       evaluateTimer(true);
       if(state.timer.running) requestWakeLock();
       renderAll();
-      resumeFocusAudioOnReturn();
     }
   });
 }
