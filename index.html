@@ -13,8 +13,7 @@
 <body>
 
   <!-- ============================================================
-       AUTH SCREEN — shown before login/registration. Hidden (and
-       removed from tab order) the moment a student is signed in.
+       AUTH SCREEN — shown before login/registration.
   ============================================================= -->
   <div class="auth-screen glass" id="authScreen">
     <div class="auth-card">
@@ -60,9 +59,7 @@
   </div>
 
   <!-- ============================================================
-       REGISTRATION SUCCESS MODAL — the Student ID is shown exactly
-       once here. The app stays locked until "I Have Written It
-       Down" is clicked.
+       REGISTRATION SUCCESS MODAL
   ============================================================= -->
   <div class="modal-overlay" id="registrationSuccessModal" hidden>
     <div class="modal-card glass">
@@ -78,8 +75,7 @@
   </div>
 
   <!-- ============================================================
-       ADMIN — small trigger button, password gate, and the
-       full-screen dashboard overlay.
+       ADMIN TRIGGER & DASHBOARD
   ============================================================= -->
   <button class="admin-trigger" id="adminTrigger" type="button" aria-label="Admin">Admin</button>
 
@@ -107,6 +103,20 @@
       <div class="stat-card"><span>Offline</span><strong id="adminOfflineStudents">0</strong></div>
       <div class="stat-card"><span>Idle</span><strong id="adminIdleStudents">0</strong></div>
       <div class="stat-card"><span>Studying</span><strong id="adminStudyingStudents">0</strong></div>
+    </div>
+
+    <!-- 🎵 Admin Focus Sound Management -->
+    <div class="admin-sound-section glass" style="margin-bottom: 20px; padding: 18px; border-radius: 18px;">
+      <h3 style="margin-top:0; font-family:var(--font-display);">🎵 Admin Focus Sound Management</h3>
+      <form id="adminSoundForm" style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom: 14px;">
+        <input type="text" id="adminSoundTitle" placeholder="Sound Title (e.g. Rain)" required style="flex:1; min-width: 150px;" />
+        <input type="url" id="adminSoundUrl" placeholder="Audio Direct Link (.mp3)" required style="flex:2; min-width: 200px;" />
+        <button type="submit" class="btn primary">➕ Add Sound</button>
+      </form>
+      
+      <div id="adminSoundList" style="display:grid; gap:10px; max-height: 180px; overflow-y: auto;">
+        <!-- Dynamic sound list -->
+      </div>
     </div>
 
     <div class="admin-controls">
