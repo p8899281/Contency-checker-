@@ -122,7 +122,7 @@
     <div class="admin-sound-section glass" style="margin-bottom: 20px; padding: 18px; border-radius: 18px;">
       <h3 style="margin-top:0; font-family:var(--font-display);">🎵 Admin Focus Sound Management</h3>
       <form id="adminSoundForm" style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom: 14px;">
-        <input type="text" id="adminSoundTitle" placeholder="Sound Title (e.g. Rain)" required style="flex:1; min-width: 150px;" />
+        <input type="text" id="adminSoundTitle" placeholder="Sound Title (e.g. Flute)" required style="flex:1; min-width: 150px;" />
         <input type="url" id="adminSoundUrl" placeholder="Audio Direct Link (.mp3)" required style="flex:2; min-width: 200px;" />
         <button type="submit" class="btn primary">➕ Add Sound</button>
       </form>
@@ -290,7 +290,7 @@
             <p>Pomodoro cycles for deep work and relaxing breaks.</p>
           </div>
 
-          <!-- 🎯 Focus Mode / ☕ Break Mode Mode Selection -->
+          <!-- Mode Selection Buttons -->
           <div style="display:flex; gap:10px; margin-bottom:14px;">
             <button class="btn primary" id="switchToFocusBtn" type="button" style="flex:1;">🎯 Focus Mode</button>
             <button class="btn secondary" id="switchToBreakBtn" type="button" style="flex:1;">☕ Break Mode</button>
@@ -302,7 +302,7 @@
             <button class="preset-btn" data-minutes="90" data-break="20">90 / 20</button>
           </div>
 
-          <!-- Single Input Box for Custom Minutes -->
+          <!-- Custom Minutes Input -->
           <div class="custom-timer" style="grid-template-columns: 2fr 1fr;">
             <input type="number" id="customMinutes" min="1" placeholder="Focus minutes (e.g. 25)" />
             <button class="btn secondary" id="applyCustomTimer">Apply Timer</button>
@@ -319,12 +319,6 @@
             <label>Focus Sound
               <select id="focusSoundSelect">
                 <option value="none">None</option>
-                <option value="rain">Soft Rain</option>
-                <option value="brown">Brown Noise</option>
-                <option value="drone">Deep Focus Drone</option>
-                <option value="ocean">Ocean Waves</option>
-                <option value="forest">Forest Ambience</option>
-                <option value="bowl">Meditation Bowl</option>
               </select>
             </label>
             <label>Volume
