@@ -290,7 +290,7 @@
             <p>Pomodoro cycles for deep work and relaxing breaks.</p>
           </div>
 
-          <!-- 🎯/☕ Focus Mode vs Break Mode Direct Selection -->
+          <!-- 🎯 Focus Mode / ☕ Break Mode Mode Selection -->
           <div style="display:flex; gap:10px; margin-bottom:14px;">
             <button class="btn primary" id="switchToFocusBtn" type="button" style="flex:1;">🎯 Focus Mode</button>
             <button class="btn secondary" id="switchToBreakBtn" type="button" style="flex:1;">☕ Break Mode</button>
@@ -302,10 +302,10 @@
             <button class="preset-btn" data-minutes="90" data-break="20">90 / 20</button>
           </div>
 
-          <div class="custom-timer">
-            <input type="number" id="customWork" min="1" placeholder="Work min" />
-            <input type="number" id="customBreak" min="1" placeholder="Break min" />
-            <button class="btn secondary" id="applyCustomTimer">Custom Timer</button>
+          <!-- Single Input Box for Custom Minutes -->
+          <div class="custom-timer" style="grid-template-columns: 2fr 1fr;">
+            <input type="number" id="customMinutes" min="1" placeholder="Focus minutes (e.g. 25)" />
+            <button class="btn secondary" id="applyCustomTimer">Apply Timer</button>
           </div>
 
           <div class="timer-circle" id="timerCircle">
