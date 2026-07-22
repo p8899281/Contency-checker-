@@ -176,16 +176,19 @@ function renderStats(){
   const weekMinutes = studyMinutesForRange(weekStart, now);
   const monthMinutes = studyMinutesForRange(monthStart, now);
   const sixMonthMinutes = studyMinutesForRange(sixMonthStart, now);
+  const totalMinutesAllTime = state.focusSessions.reduce((sum,s) => sum + (s.minutes || 0), 0);
 
   const allDays = [...new Set(state.focusSessions.map(s => s.date))].length || 1;
   const avg = Math.round(monthMinutes / allDays);
 
   const completedTasks = state.tasks.filter(t => t.done).length;
-  const streak = calculateStreak();
+  const totalTasksAllTime = state.tasks.length;
+  const totalPendingTasksAllTime = state.tasks.filter(t => !t.done).length;
 
+  const streak = calculateStreak();
   const st = taskStats();
 
-  // Home View Stats
+  // Home View
   if($("#todayTasksCount")) $("#todayTasksCount").textContent = st.totalToday;
   if($("#pendingTasksCount")) $("#pendingTasksCount").textContent = st.pendingToday;
   if($("#completedTasksCount")) $("#completedTasksCount").textContent = st.completedToday;
@@ -196,10 +199,11 @@ function renderStats(){
   if($("#sidebarStreak")) $("#sidebarStreak").textContent = `${streak} days`;
   if($("#sidebarTodayHours")) $("#sidebarTodayHours").textContent = formatMinutes(todayMinutes);
 
-  // Dashboard View (With 6 Months Progress)
-  if($("#dashTodayHours")) $("#dashTodayHours").textContent = formatMinutes(todayMinutes);
-  if($("#dashTodayTasks")) $("#dashTodayTasks").textContent = st.totalToday;
-  if($("#dashCompletedTasks")) $("#dashCompletedTasks").textContent = st.completedToday;
+  // Dashboard View (All-Time Aggregated Summary)
+  if($("#dashTotalHours")) $("#dashTotalHours").textContent = formatMinutes(totalMinutesAllTime);
+  if($("#dashTotalTasks")) $("#dashTotalTasks").textContent = totalTasksAllTime;
+  if($("#dashTotalCompletedTasks")) $("#dashTotalCompletedTasks").textContent = completedTasks;
+  if($("#dashTotalPendingTasks")) $("#dashTotalPendingTasks").textContent = totalPendingTasksAllTime;
   if($("#dashStreak")) $("#dashStreak").textContent = `${streak} days`;
   if($("#dashWeeklyProgress")) $("#dashWeeklyProgress").textContent = `${Math.min(100, Math.round((weekMinutes / (7*60)) * 100))}%`;
   if($("#dashMonthlyProgress")) $("#dashMonthlyProgress").textContent = `${Math.min(100, Math.round((monthMinutes / (30*60)) * 100))}%`;
@@ -221,16 +225,35 @@ function renderStats(){
   }
 }
 
+/** 🔥 Study Streak Calculator: 
+ *  Counts streak ONLY if user has at least 1 MINUTE of focus time on that day.
+ */
 function calculateStreak(){
-  const doneDays = [...new Set(state.focusSessions.map(s => s.date))].sort();
-  if(!doneDays.length) return 0;
+  const minsPerDay = {};
+  state.focusSessions.forEach(s => {
+    minsPerDay[s.date] = (minsPerDay[s.date] || 0) + (s.minutes || 0);
+  });
+
+  const validDays = Object.keys(minsPerDay).filter(d => minsPerDay[d] >= 1);
+  if(!validDays.length) return 0;
+
   let streak = 0;
   let cursor = new Date();
   cursor.setHours(0,0,0,0);
+
+  const todayKey = dateKey(cursor);
+  if (!validDays.includes(todayKey)) {
+    cursor.setDate(cursor.getDate() - 1);
+  }
+
   while(true){
     const key = dateKey(cursor);
-    if(doneDays.includes(key)){ streak++; cursor.setDate(cursor.getDate()-1); }
-    else break;
+    if(validDays.includes(key)){
+      streak++;
+      cursor.setDate(cursor.getDate() - 1);
+    } else {
+      break;
+    }
   }
   return streak;
 }
@@ -559,7 +582,7 @@ function roundRect(ctx, x, y, width, height, radius, fill, stroke) {
   ctx.quadraticCurveTo(x + width, y + height, x + width - radius.br, y + height);
   ctx.lineTo(x + radius.bl, y + height);
   ctx.quadraticCurveTo(x, y + height, x, y + height - radius.bl);
-  ctx.lineTo(x, y + radius.tl);
+  ctx.lineTo(x + radius.tl, y + height);
   ctx.quadraticCurveTo(x, y, x + radius.tl, y);
   ctx.closePath();
   if (fill) ctx.fill();
