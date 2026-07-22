@@ -302,6 +302,7 @@ function renderSettings(){
 function renderTimer(){
   $("#timerDisplay").textContent = formatTime(state.timer.remaining);
   $("#timerMode").textContent = state.timer.phase === "focus" ? "Focus" : "Break";
+  updateMediaSessionMetadata(); // 👈 নোটিফিকেশন বারে লাইভ সময় আপডেট করার লজিক
 }
 
 function renderTimerActiveState(){
@@ -530,7 +531,7 @@ function notify(title, body){
 }
 
 /* =============================================================================
-   FOCUS SOUND
+   FOCUS SOUND & DYNAMIC NOTIFICATION TIMER
 ============================================================================= */
 let focusAudioCtx = null;
 let focusNoiseSource = null;
@@ -541,6 +542,41 @@ let focusSoundVolumeBeforeMute = 0.4;
 let focusSoundPlayingKind = null;
 let focusChirpTimeout = null;
 let activeCustomAudio = null;
+
+/** ⏱️ নোটিফিকেশন বারে লাইভ সময় এবং সাউন্ড নেম দেখানোর ফাংশন */
+function updateMediaSessionMetadata(){
+  if ('mediaSession' in navigator && state.timer.running && state.timer.phase === "focus") {
+    let soundTitle = "Focus Sound";
+    const kind = state.focusSound.kind;
+    
+    if (kind === "rain") soundTitle = "Soft Rain";
+    else if (kind === "brown") soundTitle = "Brown Noise";
+    else if (kind === "drone") soundTitle = "Deep Focus Drone";
+    else if (kind === "ocean") soundTitle = "Ocean Waves";
+    else if (kind === "forest") soundTitle = "Forest Ambience";
+    else if (kind === "bowl") soundTitle = "Meditation Bowl";
+    else if (kind !== "none") {
+      const custom = state.customSounds.find(s => s.id === kind || s.title === kind);
+      if (custom) soundTitle = custom.title;
+    }
+
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: `⏱️ ${formatTime(state.timer.remaining)} · ${soundTitle}`,
+      artist: 'Study with Nishtha · Ekagra',
+      album: 'Constancy Checker by Soumen'
+    });
+
+    navigator.mediaSession.setActionHandler('play', () => {
+      if(activeCustomAudio) activeCustomAudio.play().catch(()=>{});
+      if(focusAudioCtx) focusAudioCtx.resume().catch(()=>{});
+      updateFocusSoundForTimerState();
+    });
+
+    navigator.mediaSession.setActionHandler('pause', () => {
+      stopFocusSound();
+    });
+  }
+}
 
 function ensureFocusAudioContext(){
   if(!focusAudioCtx){
@@ -714,7 +750,6 @@ function startFocusSound(kind){
         activeCustomAudio.volume = state.focusSound.volume;
         activeCustomAudio.play().catch(e => {
           console.warn("Audio play failed:", e.message);
-          // Autoplay ব্লক হলে প্লেইং স্টেট ক্লিয়ার করা হলো
           focusSoundPlayingKind = null;
         });
         
@@ -732,6 +767,7 @@ function startFocusSound(kind){
     }
 
     focusSoundPlayingKind = kind;
+    updateMediaSessionMetadata();
   }catch(e){
     console.warn("Focus sound couldn't start:", e.message);
     focusSoundPlayingKind = null;
@@ -753,7 +789,40 @@ function updateFocusSoundForTimerState(){
   }
   if(focusSoundPlayingKind !== desiredKind){
     startFocusSound(desiredKind);
+  } else {
+    if(activeCustomAudio && activeCustomAudio.paused){
+      activeCustomAudio.play().catch(() => {});
+    }
+    if(focusAudioCtx && focusAudioCtx.state === "suspended"){
+      focusAudioCtx.resume().catch(() => {});
+    }
   }
+}
+
+function resumeFocusAudioOnReturn(){
+  if(!state.timer.running || state.timer.phase !== "focus" || state.focusSound.kind === "none") return;
+  
+  const tryPlay = () => {
+    if (focusAudioCtx && focusAudioCtx.state === "suspended") {
+      focusAudioCtx.resume().catch(()=>{});
+    }
+    if (activeCustomAudio && activeCustomAudio.paused) {
+      activeCustomAudio.play().catch(()=>{});
+    }
+    if (focusSoundPlayingKind !== state.focusSound.kind) {
+      startFocusSound(state.focusSound.kind);
+    }
+  };
+
+  tryPlay();
+
+  const unlockOnGesture = () => {
+    tryPlay();
+    document.removeEventListener("click", unlockOnGesture);
+    document.removeEventListener("touchstart", unlockOnGesture);
+  };
+  document.addEventListener("click", unlockOnGesture, { once: true });
+  document.addEventListener("touchstart", unlockOnGesture, { once: true });
 }
 
 function renderFocusSoundUI(){
@@ -1148,11 +1217,16 @@ function bindEvents(){
   $$('input[name="theme"]').forEach(r=> r.addEventListener("change", e => { state.settings.theme = e.target.value; autosave(); }));
   $("#resetSettings").onclick = ()=>{ state.settings = { theme:"dark", fontSize:16 }; autosave(); };
 
+  window.addEventListener("focus", ()=>{
+    resumeFocusAudioOnReturn();
+  });
+
   document.addEventListener("visibilitychange", ()=>{
     if(!document.hidden){
       evaluateTimer(true);
       if(state.timer.running) requestWakeLock();
       renderAll();
+      resumeFocusAudioOnReturn();
     }
   });
 }
@@ -1193,7 +1267,6 @@ function initApp(){
   startHeartbeat();
   syncActivityIfChanged();
 
-  // Refresh Popup Handler
   const resumeModal = $("#resumeSessionModal");
   const resumeBtn = $("#resumeSessionBtn");
 
@@ -1207,7 +1280,6 @@ function initApp(){
       if(ctx && ctx.state === "suspended"){
         ctx.resume();
       }
-      // Force reset playing status so sound is forced to restart on user click
       focusSoundPlayingKind = null;
       if(resumeModal) resumeModal.hidden = true;
       updateFocusSoundForTimerState();
