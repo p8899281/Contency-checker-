@@ -302,6 +302,20 @@ function renderSettings(){
 function renderTimer(){
   $("#timerDisplay").textContent = formatTime(state.timer.remaining);
   $("#timerMode").textContent = state.timer.phase === "focus" ? "Focus" : "Break";
+  
+  // Update Mode Switch Buttons UI
+  const focusBtn = $("#switchToFocusBtn");
+  const breakBtn = $("#switchToBreakBtn");
+  if(focusBtn && breakBtn){
+    if(state.timer.phase === "focus"){
+      focusBtn.className = "btn primary";
+      breakBtn.className = "btn secondary";
+    }else{
+      focusBtn.className = "btn secondary";
+      breakBtn.className = "btn primary";
+    }
+  }
+
   updateMediaSessionMetadata();
 }
 
@@ -569,8 +583,8 @@ function switchSoundTrack(direction) {
 }
 
 function updateMediaSessionMetadata(){
-  if ('mediaSession' in navigator && state.timer.running && state.timer.phase === "focus") {
-    let soundTitle = "Focus Sound";
+  if ('mediaSession' in navigator && state.timer.running) {
+    let soundTitle = state.timer.phase === "focus" ? "Focusing" : "Break Time";
     const kind = state.focusSound.kind;
     
     if (kind === "rain") soundTitle = "Soft Rain";
@@ -585,7 +599,7 @@ function updateMediaSessionMetadata(){
     }
 
     navigator.mediaSession.metadata = new MediaMetadata({
-      title: `⏱️ ${formatTime(state.timer.remaining)} · ${soundTitle}`,
+      title: `⏱️ ${formatTime(state.timer.remaining)} (${state.timer.phase.toUpperCase()}) · ${soundTitle}`,
       artist: 'Study with Nishtha · Ekagra',
       album: 'Constancy Checker by Soumen'
     });
@@ -604,7 +618,6 @@ function updateMediaSessionMetadata(){
       userPausedSound = true;
       if (activeCustomAudio) activeCustomAudio.pause();
       if (focusAudioCtx && focusAudioCtx.state === "running") focusAudioCtx.suspend().catch(()=>{});
-      if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
     });
 
     navigator.mediaSession.setActionHandler('previoustrack', () => switchSoundTrack(-1));
@@ -678,7 +691,6 @@ function startFocusSound(kind){
   stopFocusSound();
   if(kind === "none") return;
 
-  // 👈 ডিফল্ট সাউন্ড চলাকালেও নোটিফিকেশন বারটি ধরে রাখার জন্য সাইলেন্ট অডিও সেশন
   if (kind === "rain" || kind === "brown" || kind === "drone" || kind === "ocean" || kind === "forest" || kind === "bowl") {
     activeCustomAudio = new Audio(SILENT_AUDIO_URI);
     activeCustomAudio.loop = true;
@@ -1057,7 +1069,6 @@ function advancePhase(){
     state.timer.remaining = state.timer.workMinutes * 60;
   }
   
-  // 👈 ফোকাস টাইমার বা ব্রেক টাইমার শেষ হলে টাইমার অটোমেটিক পজ হয়ে থাকবে
   state.timer.running = false;
   state.timer.endAt = null;
   releaseWakeLock();
@@ -1100,6 +1111,40 @@ function startTimerLoop(){
 
 function bindEvents(){
   $$(".nav-item").forEach(btn => btn.addEventListener("click", () => switchView(btn.dataset.view)));
+
+  // Direct Mode Switchers (Focus Mode vs Break Mode)
+  const focusBtn = $("#switchToFocusBtn");
+  const breakBtn = $("#switchToBreakBtn");
+
+  if(focusBtn){
+    focusBtn.onclick = () => {
+      stopAlarm();
+      userPausedSound = false;
+      state.timer.phase = "focus";
+      state.timer.running = false;
+      state.timer.endAt = null;
+      state.timer.remaining = state.timer.workMinutes * 60;
+      releaseWakeLock();
+      stopFocusSound();
+      renderTimer();
+      autosave();
+    };
+  }
+
+  if(breakBtn){
+    breakBtn.onclick = () => {
+      stopAlarm();
+      userPausedSound = false;
+      state.timer.phase = "break";
+      state.timer.running = false;
+      state.timer.endAt = null;
+      state.timer.remaining = state.timer.breakMinutes * 60;
+      releaseWakeLock();
+      stopFocusSound();
+      renderTimer();
+      autosave();
+    };
+  }
 
   $("#taskForm").addEventListener("submit", e => {
     e.preventDefault();
@@ -1145,8 +1190,7 @@ function bindEvents(){
     btn.classList.add("active");
     state.timer.workMinutes = Number(btn.dataset.minutes);
     state.timer.breakMinutes = Number(btn.dataset.break);
-    state.timer.phase = "focus";
-    state.timer.remaining = state.timer.workMinutes * 60;
+    state.timer.remaining = (state.timer.phase === "focus" ? state.timer.workMinutes : state.timer.breakMinutes) * 60;
     if(state.timer.running) state.timer.endAt = Date.now() + state.timer.remaining*1000;
     autosave();
   }));
@@ -1156,8 +1200,7 @@ function bindEvents(){
     const b = Number($("#customBreak").value || 5);
     state.timer.workMinutes = w;
     state.timer.breakMinutes = b;
-    state.timer.phase = "focus";
-    state.timer.remaining = w * 60;
+    state.timer.remaining = (state.timer.phase === "focus" ? w : b) * 60;
     if(state.timer.running) state.timer.endAt = Date.now() + state.timer.remaining*1000;
     autosave();
     toast("Custom timer applied");
@@ -1196,8 +1239,7 @@ function bindEvents(){
     userPausedSound = false;
     state.timer.running = false;
     state.timer.endAt = null;
-    state.timer.phase = "focus";
-    state.timer.remaining = state.timer.workMinutes * 60;
+    state.timer.remaining = (state.timer.phase === "focus" ? state.timer.workMinutes : state.timer.breakMinutes) * 60;
     releaseWakeLock();
     updateFocusSoundForTimerState();
     autosave();
