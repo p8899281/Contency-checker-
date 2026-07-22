@@ -75,7 +75,7 @@
   </div>
 
   <!-- ============================================================
-       RESUME SESSION MODAL (REFRESH SOUND FIX)
+       RESUME SESSION MODAL
   ============================================================= -->
   <div class="modal-overlay" id="resumeSessionModal" hidden>
     <div class="modal-card glass">
@@ -286,8 +286,14 @@
 
         <section class="panel glass view" id="view-focus">
           <div class="section-title">
-            <h3>Focus Timer</h3>
-            <p>Pomodoro cycles for deep work.</p>
+            <h3>Focus & Break Timer</h3>
+            <p>Pomodoro cycles for deep work and relaxing breaks.</p>
+          </div>
+
+          <!-- 🎯/☕ Focus Mode vs Break Mode Direct Selection -->
+          <div style="display:flex; gap:10px; margin-bottom:14px;">
+            <button class="btn primary" id="switchToFocusBtn" type="button" style="flex:1;">🎯 Focus Mode</button>
+            <button class="btn secondary" id="switchToBreakBtn" type="button" style="flex:1;">☕ Break Mode</button>
           </div>
 
           <div class="timer-presets">
