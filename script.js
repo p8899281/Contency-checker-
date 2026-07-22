@@ -70,6 +70,14 @@ function loadState(){
         saved.timer || {}
       );
       state.focusSound = Object.assign({ kind:"none", volume:0.4 }, saved.focusSound || {});
+      
+      // Legacy tasks migration to support precise completion dates
+      if(state.tasks && Array.isArray(state.tasks)){
+        state.tasks.forEach(t => {
+          if(!t.createdAt) t.createdAt = todayISO();
+          if(t.done && !t.completedAt) t.completedAt = t.createdAt;
+        });
+      }
     }
     const settings = JSON.parse(localStorage.getItem(settingsKey()));
     if(settings) state.settings = Object.assign(state.settings, settings);
@@ -131,12 +139,14 @@ function getGreeting(){
 function taskStats(){
   const today = todayISO();
   const todaysTasks = state.tasks.filter(t => t.createdAt === today);
-  const completed = todaysTasks.filter(t => t.done).length;
+  const completedToday = state.tasks.filter(t => t.done && t.completedAt === today).length;
+  const pendingToday = todaysTasks.filter(t => !t.done).length;
+
   return {
     totalToday: todaysTasks.length,
-    pending: todaysTasks.filter(t => !t.done).length,
-    completed,
-    completionPercent: todaysTasks.length ? Math.round((completed / todaysTasks.length) * 100) : 0
+    pending: pendingToday,
+    completed: completedToday,
+    completionPercent: todaysTasks.length ? Math.round((todaysTasks.filter(t => t.done && t.completedAt === today).length / todaysTasks.length) * 100) : 0
   };
 }
 
@@ -219,15 +229,17 @@ function renderTasks(){
   list.innerHTML = "";
   const today = todayISO();
 
+  // Show tasks created today OR pending tasks from previous days
   state.tasks
-    .filter(t => t.createdAt === today)
+    .filter(t => t.createdAt === today || (!t.done && t.createdAt < today))
     .sort((a,b)=> (a.done - b.done) || ({High:0,Medium:1,Low:2}[a.priority]-{High:0,Medium:1,Low:2}[b.priority]))
     .forEach(task => {
+      const isPendingFromPast = !task.done && task.createdAt < today;
       const el = document.createElement("div");
       el.className = `task-item ${task.done ? "done" : ""}`;
       el.innerHTML = `
         <div>
-          <strong>${escapeHtml(task.title)}</strong>
+          <strong>${escapeHtml(task.title)} ${isPendingFromPast ? `<span style="color:#e8a33d; font-size:12px;">(Pending from ${task.createdAt})</span>` : ""}</strong>
           <div class="muted">${escapeHtml(task.subject)} · ${task.priority}</div>
         </div>
         <div class="task-actions">
@@ -269,10 +281,10 @@ function renderCalendar(){
   for(let day=1; day<=last.getDate(); day++){
     const iso = dateKey(new Date(state.currentYear, state.currentMonth, day));
     const focusMins = state.focusSessions.filter(s => s.date === iso).reduce((a,b)=>a+b.minutes,0);
-    const tasks = state.tasks.filter(t => t.createdAt === iso).length;
+    const createdTasks = state.tasks.filter(t => t.createdAt === iso).length;
     const cell = document.createElement("div");
     cell.className = `day-cell ${iso === state.selectedDate ? "selected" : ""}`;
-    cell.innerHTML = `<div class="day-num">${day}</div><div class="day-meta">${formatMinutes(focusMins)} · ${tasks} tasks</div>`;
+    cell.innerHTML = `<div class="day-num">${day}</div><div class="day-meta">${formatMinutes(focusMins)} · ${createdTasks} tasks</div>`;
     cell.onclick = () => {
       state.selectedDate = iso;
       autosave();
@@ -289,9 +301,28 @@ function updateCalendarDetails(){
   const entry = state.calendar[state.selectedDate] || {};
   $("#calendarStudyHours").value = entry.studyHours ?? "";
   $("#calendarNotes").value = entry.notes ?? "";
-  const taskCount = state.tasks.filter(t => t.createdAt === state.selectedDate).length;
-  const focusMins = state.focusSessions.filter(s => s.date === state.selectedDate).reduce((a,b)=>a+b.minutes,0);
-  $("#daySummary").textContent = `${taskCount} tasks · ${formatMinutes(focusMins)} studied`;
+
+  const iso = state.selectedDate;
+  const tasksCreated = state.tasks.filter(t => t.createdAt === iso);
+  const totalCreated = tasksCreated.length;
+  const completedToday = tasksCreated.filter(t => t.done && t.completedAt === iso).length;
+  const pendingToday = tasksCreated.filter(t => !t.done).length;
+  const pendingCompletedToday = state.tasks.filter(t => t.done && t.completedAt === iso && t.createdAt < iso).length;
+
+  const focusMins = state.focusSessions.filter(s => s.date === iso).reduce((a,b)=>a+b.minutes,0);
+
+  const summaryEl = $("#daySummary");
+  if(summaryEl){
+    summaryEl.innerHTML = `
+      <div style="display:flex; flex-direction:column; gap:6px; font-size:14px; margin-top:6px;">
+        <div>📊 <strong>Total Tasks Created:</strong> ${totalCreated}</div>
+        <div>✅ <strong>Completed Today:</strong> ${completedToday}</div>
+        <div>⏳ <strong>Pending Today:</strong> ${pendingToday}</div>
+        <div>🔄 <strong>Pending Completed Today:</strong> ${pendingCompletedToday}</div>
+        <div>⏱️ <strong>Study Time:</strong> ${formatMinutes(focusMins)}</div>
+      </div>
+    `;
+  }
 }
 
 function renderSettings(){
@@ -479,8 +510,8 @@ function renderDataTables(){
   $("#dataTaskCount").textContent = tasksSorted.length;
   $("#allTasksTable").innerHTML = tasksSorted.length
     ? renderTable(
-        ["Date","Title","Subject","Priority","Status"],
-        tasksSorted.map(t=>[t.createdAt, escapeHtml(t.title), escapeHtml(t.subject), t.priority, t.done ? "Done" : "Pending"])
+        ["Created Date","Completed Date","Title","Subject","Priority","Status"],
+        tasksSorted.map(t=>[t.createdAt, t.completedAt || "—", escapeHtml(t.title), escapeHtml(t.subject), t.priority, t.done ? "Done" : "Pending"])
       )
     : `<p class="empty-note">No tasks logged yet.</p>`;
 
@@ -629,7 +660,6 @@ function startFocusSound(kind){
       activeCustomAudio.loop = true;
       activeCustomAudio.volume = state.focusSound.volume;
       
-      // 👈 অন্য অ্যাপ অডিও ইন্টারাপ্ট (যেমন ইউটিউব চালু) করলে ফোকাস ইয়েল্ড করবে
       activeCustomAudio.addEventListener('pause', () => {
         if ('mediaSession' in navigator) {
           navigator.mediaSession.playbackState = 'paused';
@@ -669,6 +699,26 @@ function updateFocusSoundForTimerState(){
   if(focusSoundPlayingKind !== desiredKind){
     startFocusSound(desiredKind);
   }
+}
+
+function resumeFocusAudioOnReturn(){
+  if(userPausedSound || !state.timer.running || state.timer.phase !== "focus" || state.focusSound.kind === "none") return;
+
+  if (activeCustomAudio && activeCustomAudio.paused) {
+    activeCustomAudio.play().catch(()=>{});
+  } else if (!activeCustomAudio) {
+    startFocusSound(state.focusSound.kind);
+  }
+
+  const unlockOnGesture = () => {
+    if(!userPausedSound && activeCustomAudio && activeCustomAudio.paused){
+      activeCustomAudio.play().catch(()=>{});
+    }
+    document.removeEventListener("click", unlockOnGesture);
+    document.removeEventListener("touchstart", unlockOnGesture);
+  };
+  document.addEventListener("click", unlockOnGesture, { once: true });
+  document.addEventListener("touchstart", unlockOnGesture, { once: true });
 }
 
 function renderFocusSoundUI(){
@@ -881,8 +931,6 @@ function evaluateTimer(triggerEffects){
     state.timer.remaining = Math.max(0, Math.round((state.timer.endAt - now)/1000));
   }
   
-  // 👈 প্রতি ১-সেকেন্ডের অডিও হাইজ্যাক লুপ বন্ধ করা হলো! (যাতে ইউটিউব ক্লাস সুন্দরভাবে প্লে হতে পারে)
-  
   if(completedAny && triggerEffects){
     playAlarm();
     notify("Timer Finished", state.timer.phase === "break" ? "Focus session complete! Time for a break." : "Break finished! Ready to focus?");
@@ -949,7 +997,8 @@ function bindEvents(){
       subject: $("#taskSubject").value.trim(),
       priority: $("#taskPriority").value,
       done: false,
-      createdAt: todayISO()
+      createdAt: todayISO(),
+      completedAt: null
     };
     const existing = state.tasks.findIndex(t => t.id === id);
     if(existing >= 0) state.tasks[existing] = { ...state.tasks[existing], ...task };
@@ -965,7 +1014,11 @@ function bindEvents(){
     const action = e.target.dataset.action;
     const task = state.tasks.find(t => t.id === id);
     if(!task) return;
-    if(action === "toggle"){ task.done = !task.done; autosave(); }
+    if(action === "toggle"){
+      task.done = !task.done;
+      task.completedAt = task.done ? todayISO() : null; // Record exact date when completed
+      autosave();
+    }
     if(action === "delete"){
       state.tasks = state.tasks.filter(t => t.id !== id);
       autosave();
