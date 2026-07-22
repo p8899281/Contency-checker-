@@ -540,7 +540,7 @@ let focusOscillators = [];
 let focusSoundVolumeBeforeMute = 0.4;
 let focusSoundPlayingKind = null;
 let focusChirpTimeout = null;
-let activeCustomAudio = null; // MP3 sound instance
+let activeCustomAudio = null;
 
 function ensureFocusAudioContext(){
   if(!focusAudioCtx){
@@ -773,7 +773,7 @@ function renderFocusSoundUI(){
     html += `</optgroup>`;
   }
 
-  // Blinking Fix: Prevent unnecessary HTML replacement during timer tick
+  // Blinking Fix
   if(select.innerHTML.trim() !== html.trim()){
     const currentVal = state.focusSound.kind;
     select.innerHTML = html;
@@ -1189,20 +1189,24 @@ function initApp(){
   startHeartbeat();
   syncActivityIfChanged();
 
-  // Autoplay Unlocker: Refresh-এর পর ইউজার পেজে ১টি ক্লিক বা টাচ করলেই সাউন্ড আনলক হবে
-  const unlockAudioAndPlaySound = () => {
-    if (focusAudioCtx && focusAudioCtx.state === 'suspended') {
-      focusAudioCtx.resume();
-    }
-    updateFocusSoundForTimerState();
-    document.removeEventListener('click', unlockAudioAndPlaySound);
-    document.removeEventListener('touchstart', unlockAudioAndPlaySound);
-  };
+  // Refresh Popup Handler
+  const resumeModal = $("#resumeSessionModal");
+  const resumeBtn = $("#resumeSessionBtn");
 
-  document.addEventListener('click', unlockAudioAndPlaySound);
-  document.addEventListener('touchstart', unlockAudioAndPlaySound);
+  if(state.timer.running && state.focusSound.kind !== "none"){
+    if(resumeModal) resumeModal.hidden = false;
+  }
 
-  updateFocusSoundForTimerState();
+  if(resumeBtn){
+    resumeBtn.onclick = () => {
+      const ctx = ensureFocusAudioContext();
+      if(ctx && ctx.state === "suspended"){
+        ctx.resume();
+      }
+      if(resumeModal) resumeModal.hidden = true;
+      updateFocusSoundForTimerState();
+    };
+  }
 
   window.addEventListener("pagehide", ()=>{
     if(currentStudent){
