@@ -1189,6 +1189,21 @@ function initApp(){
   startHeartbeat();
   syncActivityIfChanged();
 
+  // Autoplay Unlocker: Refresh-এর পর ইউজার পেজে ১টি ক্লিক বা টাচ করলেই সাউন্ড আনলক হবে
+  const unlockAudioAndPlaySound = () => {
+    if (focusAudioCtx && focusAudioCtx.state === 'suspended') {
+      focusAudioCtx.resume();
+    }
+    updateFocusSoundForTimerState();
+    document.removeEventListener('click', unlockAudioAndPlaySound);
+    document.removeEventListener('touchstart', unlockAudioAndPlaySound);
+  };
+
+  document.addEventListener('click', unlockAudioAndPlaySound);
+  document.addEventListener('touchstart', unlockAudioAndPlaySound);
+
+  updateFocusSoundForTimerState();
+
   window.addEventListener("pagehide", ()=>{
     if(currentStudent){
       updateStudentActivity(currentStudent.uid, {
