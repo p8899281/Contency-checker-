@@ -183,7 +183,12 @@ function renderStats(){
 
   const completedTasks = state.tasks.filter(t => t.done).length;
   const totalTasksAllTime = state.tasks.length;
-  const totalPendingTasksAllTime = state.tasks.filter(t => !t.done).length;
+
+  // 🎯 1. same-day completion: created date == completed date
+  const totalCompletedSameDay = state.tasks.filter(t => t.done && t.completedAt && t.completedAt === t.createdAt).length;
+  
+  // 🎯 2. pending completion: created on past date, completed on later date
+  const totalCompletedPending = state.tasks.filter(t => t.done && t.completedAt && t.completedAt > t.createdAt).length;
 
   const streak = calculateStreak();
   const st = taskStats();
@@ -199,11 +204,11 @@ function renderStats(){
   if($("#sidebarStreak")) $("#sidebarStreak").textContent = `${streak} days`;
   if($("#sidebarTodayHours")) $("#sidebarTodayHours").textContent = formatMinutes(todayMinutes);
 
-  // Dashboard View (All-Time Aggregated Summary)
+  // Dashboard View (Custom-labeled & Aggregated Summary)
   if($("#dashTotalHours")) $("#dashTotalHours").textContent = formatMinutes(totalMinutesAllTime);
   if($("#dashTotalTasks")) $("#dashTotalTasks").textContent = totalTasksAllTime;
-  if($("#dashTotalCompletedTasks")) $("#dashTotalCompletedTasks").textContent = completedTasks;
-  if($("#dashTotalPendingTasks")) $("#dashTotalPendingTasks").textContent = totalPendingTasksAllTime;
+  if($("#dashTotalCompletedSameDay")) $("#dashTotalCompletedSameDay").textContent = totalCompletedSameDay;
+  if($("#dashTotalCompletedPending")) $("#dashTotalCompletedPending").textContent = totalCompletedPending;
   if($("#dashStreak")) $("#dashStreak").textContent = `${streak} days`;
   if($("#dashWeeklyProgress")) $("#dashWeeklyProgress").textContent = `${Math.min(100, Math.round((weekMinutes / (7*60)) * 100))}%`;
   if($("#dashMonthlyProgress")) $("#dashMonthlyProgress").textContent = `${Math.min(100, Math.round((monthMinutes / (30*60)) * 100))}%`;
