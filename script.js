@@ -540,6 +540,7 @@ let focusOscillators = [];
 let focusSoundVolumeBeforeMute = 0.4;
 let focusSoundPlayingKind = null;
 let focusChirpTimeout = null;
+let activeCustomAudio = null; // MP3 sound instance
 
 function ensureFocusAudioContext(){
   if(!focusAudioCtx){
@@ -568,6 +569,10 @@ function buildNoiseBuffer(ctx, color){
 }
 
 function stopFocusSound(){
+  if(activeCustomAudio){
+    try{ activeCustomAudio.pause(); activeCustomAudio.currentTime = 0; }catch(e){}
+    activeCustomAudio = null;
+  }
   try{ if(focusNoiseSource) focusNoiseSource.stop(); }catch(e){}
   if(focusNoiseSource){ focusNoiseSource.disconnect(); focusNoiseSource = null; }
   focusOscillators.forEach(o=>{ try{ o.stop(); }catch(e){} o.disconnect(); });
@@ -704,13 +709,19 @@ function startFocusSound(kind){
       // Custom Sound added by Admin
       const customSound = state.customSounds.find(s => s.id === kind || s.title === kind);
       if(customSound && customSound.audioUrl){
-        const audio = new Audio(customSound.audioUrl);
-        audio.loop = true;
-        audio.volume = state.focusSound.volume;
-        audio.play().catch(e => console.warn("Audio play failed:", e.message));
+        activeCustomAudio = new Audio(customSound.audioUrl);
+        activeCustomAudio.loop = true;
+        activeCustomAudio.volume = state.focusSound.volume;
+        activeCustomAudio.play().catch(e => console.warn("Audio play failed:", e.message));
         
         focusNoiseSource = {
-          stop: () => { audio.pause(); audio.currentTime = 0; },
+          stop: () => {
+            if(activeCustomAudio){
+              activeCustomAudio.pause();
+              activeCustomAudio.currentTime = 0;
+              activeCustomAudio = null;
+            }
+          },
           disconnect: () => {}
         };
       }
@@ -725,6 +736,7 @@ function startFocusSound(kind){
 function setFocusSoundVolume(v){
   state.focusSound.volume = v;
   if(focusGainNode) focusGainNode.gain.value = v;
+  if(activeCustomAudio) activeCustomAudio.volume = v;
 }
 
 function updateFocusSoundForTimerState(){
@@ -742,8 +754,6 @@ function updateFocusSoundForTimerState(){
 function renderFocusSoundUI(){
   const select = $("#focusSoundSelect");
   if(!select) return;
-
-  const currentVal = state.focusSound.kind;
 
   let html = `
     <option value="none">None</option>
@@ -763,8 +773,15 @@ function renderFocusSoundUI(){
     html += `</optgroup>`;
   }
 
-  select.innerHTML = html;
-  select.value = currentVal;
+  // Blinking Fix: Prevent unnecessary HTML replacement during timer tick
+  if(select.innerHTML.trim() !== html.trim()){
+    const currentVal = state.focusSound.kind;
+    select.innerHTML = html;
+    select.value = currentVal;
+  } else if(select.value !== state.focusSound.kind) {
+    select.value = state.focusSound.kind;
+  }
+
   $("#focusSoundVolume").value = Math.round(state.focusSound.volume * 100);
   $("#focusSoundMuteBtn").textContent = state.focusSound.volume > 0 ? "Mute" : "Unmute";
 }
