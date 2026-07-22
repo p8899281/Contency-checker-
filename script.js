@@ -531,7 +531,7 @@ function notify(title, body){
 }
 
 /* =============================================================================
-   FOCUS SOUND & DYNAMIC NOTIFICATION TIMER
+   FOCUS SOUND & DYNAMIC NOTIFICATION CONTROLS
 ============================================================================= */
 let focusAudioCtx = null;
 let focusNoiseSource = null;
@@ -542,8 +542,36 @@ let focusSoundVolumeBeforeMute = 0.4;
 let focusSoundPlayingKind = null;
 let focusChirpTimeout = null;
 let activeCustomAudio = null;
-let userPausedSound = false; // 👈 ইউজার ম্যানুয়ালি বা নোটিফিকেশন থেকে পজ করেছে কি না তা মনে রাখার ফ্ল্যাগ
+let userPausedSound = false;
 
+// সাইলেন্ট অডিও লিঙ্ক (যা ডিফল্ট সাউন্ডগুলোর সময়ও নোটিফিকেশন বার অ্যাক্টিভ রাখে)
+const SILENT_AUDIO_URI = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=";
+
+/** সব সাউন্ডের লিস্ট পাওয়ার হেল্পার (ডিফল্ট + কাস্টম) */
+function getAllSoundKinds() {
+  const defaultKinds = ["rain", "brown", "drone", "ocean", "forest", "bowl"];
+  const customKinds = (state.customSounds || []).map(s => s.id);
+  return [...defaultKinds, ...customKinds];
+}
+
+/** 🎵 নোটিফিকেশন বার থেকে Next/Prev চেপে সাউন্ড পরিবর্তন করার লজিক */
+function switchSoundTrack(direction) {
+  const kinds = getAllSoundKinds();
+  if (kinds.length === 0) return;
+  let currentIndex = kinds.indexOf(state.focusSound.kind);
+  if (currentIndex === -1) currentIndex = 0;
+
+  let newIndex = (currentIndex + direction + kinds.length) % kinds.length;
+  const newKind = kinds[newIndex];
+
+  userPausedSound = false;
+  state.focusSound.kind = newKind;
+  renderFocusSoundUI();
+  startFocusSound(newKind);
+  autosave();
+}
+
+/** ⏱️ নোটিফিকেশন বারে সময়, প্লে/পজ এবং নেক্সট/প্রিভিয়াস কন্ট্রোল */
 function updateMediaSessionMetadata(){
   if ('mediaSession' in navigator && state.timer.running && state.timer.phase === "focus") {
     let soundTitle = "Focus Sound";
@@ -567,16 +595,21 @@ function updateMediaSessionMetadata(){
     });
 
     navigator.mediaSession.setActionHandler('play', () => {
-      userPausedSound = false; // 👈 নোটিফিকেশনে 'Play' চাপলে আন-পজ করা হবে
-      if(activeCustomAudio) activeCustomAudio.play().catch(()=>{});
-      if(focusAudioCtx) focusAudioCtx.resume().catch(()=>{});
+      userPausedSound = false;
+      if (activeCustomAudio) activeCustomAudio.play().catch(()=>{});
+      if (focusAudioCtx && focusAudioCtx.state === "suspended") focusAudioCtx.resume().catch(()=>{});
       updateFocusSoundForTimerState();
     });
 
     navigator.mediaSession.setActionHandler('pause', () => {
-      userPausedSound = true; // 👈 নোটিফিকেশনে 'Pause' চাপলে অ্যাপ আর ব্যাকগ্রাউন্ডে অটো-চালু করবে না
-      stopFocusSound();
+      userPausedSound = true;
+      if (activeCustomAudio) activeCustomAudio.pause();
+      if (focusAudioCtx && focusAudioCtx.state === "running") focusAudioCtx.suspend().catch(()=>{});
     });
+
+    // 👈 নোটিফিকেশন বারে নেক্সট এবং প্রিভিয়াস সাউন্ড বাটন যুক্ত করা হলো
+    navigator.mediaSession.setActionHandler('previoustrack', () => switchSoundTrack(-1));
+    navigator.mediaSession.setActionHandler('nexttrack', () => switchSoundTrack(1));
   }
 }
 
@@ -645,8 +678,18 @@ function scheduleForestChirp(ctx, destination){
 function startFocusSound(kind){
   stopFocusSound();
   if(kind === "none") return;
+
+  // ডিফল্ট সিন্থেসাইজড সাউন্ডগুলোর জন্য নোটিফিকেশন সেশন সচল রাখার সাইলেন্ট অডিও
+  if (kind === "rain" || kind === "brown" || kind === "drone" || kind === "ocean" || kind === "forest" || kind === "bowl") {
+    activeCustomAudio = new Audio(SILENT_AUDIO_URI);
+    activeCustomAudio.loop = true;
+    activeCustomAudio.play().catch(()=>{});
+  }
+
   const ctx = ensureFocusAudioContext();
   if(!ctx) return;
+  if (ctx.state === "suspended") ctx.resume().catch(()=>{});
+
   try{
     focusGainNode = ctx.createGain();
     focusGainNode.gain.value = state.focusSound.volume;
@@ -783,7 +826,6 @@ function setFocusSoundVolume(v){
 }
 
 function updateFocusSoundForTimerState(){
-  // 👈 ইউজার ম্যানুয়ালি বা নোটিফিকেশন থেকে পজ করে রাখলে জোর করে চালু করা হবে না
   if (userPausedSound) return;
 
   const desiredKind = state.focusSound.kind;
