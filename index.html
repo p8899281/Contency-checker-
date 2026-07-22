@@ -202,6 +202,7 @@
       </header>
 
       <section class="content-grid">
+        <!-- HOME VIEW -->
         <section class="panel hero glass view view-active" id="view-home">
           <div class="hero-head">
             <div>
@@ -227,42 +228,32 @@
           </div>
 
           <div class="hero-stats">
-            <div class="stat-card">
-              <span>Today's Tasks</span>
-              <strong id="todayTasksCount">0</strong>
-            </div>
-            <div class="stat-card">
-              <span>Pending</span>
-              <strong id="pendingTasksCount">0</strong>
-            </div>
-            <div class="stat-card">
-              <span>Completed</span>
-              <strong id="completedTasksCount">0</strong>
-            </div>
-            <div class="stat-card">
-              <span>Today's Study Hours</span>
-              <strong id="todayStudyHours">0h 0m</strong>
-            </div>
+            <div class="stat-card"><span>Today's Tasks</span><strong id="todayTasksCount">0</strong></div>
+            <div class="stat-card"><span>Pending Tasks</span><strong id="pendingTasksCount">0</strong></div>
+            <div class="stat-card"><span>Completed Tasks</span><strong id="completedTasksCount">0</strong></div>
+            <div class="stat-card"><span>Today's Study Hours</span><strong id="todayStudyHours">0h 0m</strong></div>
           </div>
         </section>
 
+        <!-- DASHBOARD VIEW -->
         <section class="panel glass view" id="view-dashboard">
           <div class="section-title">
             <h3>Dashboard</h3>
-            <p>Only the essentials.</p>
+            <p>Overall Overview and Long-term Progress.</p>
           </div>
 
           <div class="dashboard-list">
-            <div class="dash-item"><span>Today's Tasks</span><strong id="dashTodayTasks">0</strong></div>
-            <div class="dash-item"><span>Pending Tasks</span><strong id="dashPendingTasks">0</strong></div>
-            <div class="dash-item"><span>Completed Tasks</span><strong id="dashCompletedTasks">0</strong></div>
             <div class="dash-item"><span>Today's Study Hours</span><strong id="dashTodayHours">0h 0m</strong></div>
+            <div class="dash-item"><span>Today's Tasks</span><strong id="dashTodayTasks">0</strong></div>
+            <div class="dash-item"><span>Completed Tasks</span><strong id="dashCompletedTasks">0</strong></div>
             <div class="dash-item"><span>Current Study Streak</span><strong id="dashStreak">0 days</strong></div>
             <div class="dash-item"><span>Weekly Progress</span><strong id="dashWeeklyProgress">0%</strong></div>
             <div class="dash-item"><span>Monthly Progress</span><strong id="dashMonthlyProgress">0%</strong></div>
+            <div class="dash-item"><span>6 Months Progress</span><strong id="dash6MonthProgress">0%</strong></div>
           </div>
         </section>
 
+        <!-- TASKS VIEW -->
         <section class="panel glass view" id="view-tasks">
           <div class="section-title">
             <h3>Tasks</h3>
@@ -284,13 +275,13 @@
           <div id="taskList" class="task-list"></div>
         </section>
 
+        <!-- FOCUS TIMER VIEW -->
         <section class="panel glass view" id="view-focus">
           <div class="section-title">
             <h3>Focus & Break Timer</h3>
             <p>Pomodoro cycles for deep work and relaxing breaks.</p>
           </div>
 
-          <!-- Mode Selection Buttons -->
           <div style="display:flex; gap:10px; margin-bottom:14px;">
             <button class="btn primary" id="switchToFocusBtn" type="button" style="flex:1;">🎯 Focus Mode</button>
             <button class="btn secondary" id="switchToBreakBtn" type="button" style="flex:1;">☕ Break Mode</button>
@@ -302,7 +293,6 @@
             <button class="preset-btn" data-minutes="90" data-break="20">90 / 20</button>
           </div>
 
-          <!-- Custom Minutes Input -->
           <div class="custom-timer" style="grid-template-columns: 2fr 1fr;">
             <input type="number" id="customMinutes" min="1" placeholder="Focus minutes (e.g. 25)" />
             <button class="btn secondary" id="applyCustomTimer">Apply Timer</button>
@@ -337,6 +327,7 @@
           <button class="btn danger alarm-stop" id="stopAlarm" hidden>Stop Alarm</button>
         </section>
 
+        <!-- STATISTICS VIEW -->
         <section class="panel glass view" id="view-stats">
           <div class="section-title">
             <h3>Statistics</h3>
@@ -352,7 +343,7 @@
             <div class="stat-card"><span>Average Daily Study Time</span><strong id="statsAverage">0h 0m</strong></div>
           </div>
 
-          <div class="chart-card">
+          <div class="chart-card" style="margin-top:20px;">
             <div class="section-title small">
               <h4>Progress Chart</h4>
               <p>Last 7 days</p>
@@ -361,6 +352,7 @@
           </div>
         </section>
 
+        <!-- CALENDAR VIEW -->
         <section class="panel glass view" id="view-calendar">
           <div class="section-title">
             <h3>Calendar</h3>
@@ -394,6 +386,7 @@
           </div>
         </section>
 
+        <!-- DATA VIEW -->
         <section class="panel glass view" id="view-data">
           <div class="section-title">
             <h3>Data</h3>
@@ -445,6 +438,7 @@
           </div>
         </section>
 
+        <!-- SETTINGS VIEW -->
         <section class="panel glass view" id="view-settings">
           <div class="section-title">
             <h3>Settings</h3>
