@@ -303,16 +303,20 @@ function renderTimer(){
   $("#timerDisplay").textContent = formatTime(state.timer.remaining);
   $("#timerMode").textContent = state.timer.phase === "focus" ? "Focus" : "Break";
   
-  // Update Mode Switch Buttons UI
+  // Dynamic UI for Mode Buttons & Custom Input Placeholder
   const focusBtn = $("#switchToFocusBtn");
   const breakBtn = $("#switchToBreakBtn");
+  const input = $("#customMinutes");
+
   if(focusBtn && breakBtn){
     if(state.timer.phase === "focus"){
       focusBtn.className = "btn primary";
       breakBtn.className = "btn secondary";
+      if(input) input.placeholder = `Focus minutes (e.g. ${state.timer.workMinutes})`;
     }else{
       focusBtn.className = "btn secondary";
       breakBtn.className = "btn primary";
+      if(input) input.placeholder = `Break minutes (e.g. ${state.timer.breakMinutes})`;
     }
   }
 
@@ -1112,7 +1116,7 @@ function startTimerLoop(){
 function bindEvents(){
   $$(".nav-item").forEach(btn => btn.addEventListener("click", () => switchView(btn.dataset.view)));
 
-  // Direct Mode Switchers (Focus Mode vs Break Mode)
+  // Mode Switchers
   const focusBtn = $("#switchToFocusBtn");
   const breakBtn = $("#switchToBreakBtn");
 
@@ -1195,15 +1199,23 @@ function bindEvents(){
     autosave();
   }));
 
+  // Single Input Custom Timer Logic for Active Mode
   $("#applyCustomTimer").addEventListener("click", ()=>{
-    const w = Number($("#customWork").value || 25);
-    const b = Number($("#customBreak").value || 5);
-    state.timer.workMinutes = w;
-    state.timer.breakMinutes = b;
-    state.timer.remaining = (state.timer.phase === "focus" ? w : b) * 60;
+    const mins = Number($("#customMinutes").value || (state.timer.phase === "focus" ? state.timer.workMinutes : state.timer.breakMinutes));
+    if(!mins || mins < 1) return;
+
+    if(state.timer.phase === "focus"){
+      state.timer.workMinutes = mins;
+    }else{
+      state.timer.breakMinutes = mins;
+    }
+    
+    state.timer.remaining = mins * 60;
     if(state.timer.running) state.timer.endAt = Date.now() + state.timer.remaining*1000;
+    
+    $("#customMinutes").value = "";
     autosave();
-    toast("Custom timer applied");
+    toast(`${state.timer.phase === "focus" ? "Focus" : "Break"} timer applied: ${mins} min`);
   });
 
   $("#startTimer").onclick = () => {
