@@ -1,8 +1,4 @@
-/* constancy checker by soumen
-   Vanilla JS study planner with LocalStorage autosave.
-   Now gated behind Firebase Authentication (Student ID + Password), with
-   live activity sync to Firestore and a hidden Admin Dashboard.
-*/
+/* constancy checker by soumen */
 
 import {
   watchAuthState,
@@ -12,25 +8,21 @@ import {
   logoutStudent,
   updateStudentActivity,
   watchAllStudents,
-  deleteStudentRecord
+  deleteStudentRecord,
+  watchCustomSounds,
+  addCustomSoundRecord,
+  deleteCustomSoundRecord
 } from "./firebase.js";
 
 const STORAGE_BASE = "constancy_checker_by_soumen_v1";
 const SETTINGS_BASE = "constancy_checker_by_soumen_settings_v1";
 
-// Every student gets their own isolated local cache, keyed by Firebase UID,
-// so two students logging in on the same shared computer never see each
-// other's tasks/sessions/calendar in LocalStorage.
 function storageKey(){ return `${STORAGE_BASE}_${currentStudent ? currentStudent.uid : "guest"}`; }
 function settingsKey(){ return `${SETTINGS_BASE}_${currentStudent ? currentStudent.uid : "guest"}`; }
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
-// IMPORTANT: always build YYYY-MM-DD strings from LOCAL date parts, never
-// from .toISOString() — toISOString() is UTC-based, so for timezones ahead
-// of UTC (like India/Bangladesh, UTC+5:30/+6:00) it silently shifts local
-// midnight back onto the previous day, which showed up as tasks/streaks
-// landing on the wrong calendar cell.
+
 function localDateKey(date){
   const d = new Date(date);
   const y = d.getFullYear();
@@ -58,15 +50,13 @@ const state = {
   selectedDate: todayISO(),
   currentMonth: new Date().getMonth(),
   currentYear: new Date().getFullYear(),
-  focusSound: { kind: "none", volume: 0.4 }
+  focusSound: { kind: "none", volume: 0.4 },
+  customSounds: []
 };
 
 let wakeLockSentinel = null;
 let alarmInterval = null;
 let alarmAudioCtx = null;
-
-// The currently signed-in student's profile ({ uid, studentId, name, ... }).
-// Everything Firebase-related below reads/writes through this.
 let currentStudent = null;
 
 function loadState(){
@@ -122,22 +112,15 @@ function formatTime(sec){
   return `${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;
 }
 
-function isSameDay(a,b){ return a === b; }
 function startOfWeek(d){
   const date = new Date(d);
   const day = date.getDay() || 7;
   date.setDate(date.getDate() - day + 1);
   return new Date(date.setHours(0,0,0,0));
 }
-function endOfMonth(d){
-  return new Date(d.getFullYear(), d.getMonth()+1, 0);
-}
-function dateKey(date){
-  return localDateKey(date);
-}
-function monthName(y,m){
-  return new Date(y,m,1).toLocaleDateString(undefined,{month:"long", year:"numeric"});
-}
+
+function dateKey(date){ return localDateKey(date); }
+function monthName(y,m){ return new Date(y,m,1).toLocaleDateString(undefined,{month:"long", year:"numeric"}); }
 function getGreeting(){
   const h = new Date().getHours();
   return h < 12 ? "Good Morning" : h < 18 ? "Good Afternoon" : "Good Evening";
@@ -548,14 +531,6 @@ function notify(title, body){
 
 /* =============================================================================
    FOCUS SOUND
-   -----------------------------------------------------------------------------
-   Optional ambient background sound to help students concentrate during a
-   focus session. Everything here is generated live in the browser with the
-   Web Audio API (filtered noise / simple tones) — no audio files, so there's
-   nothing to license, nothing to download, and it still works offline.
-   Automatically plays while a focus phase is running, and stops during
-   breaks / pauses. Volume and on/off are controlled from the Focus Timer tab
-   and remembered per student.
 ============================================================================= */
 let focusAudioCtx = null;
 let focusNoiseSource = null;
@@ -563,8 +538,8 @@ let focusFilterNode = null;
 let focusGainNode = null;
 let focusOscillators = [];
 let focusSoundVolumeBeforeMute = 0.4;
-let focusSoundPlayingKind = null; // which sound is actually live right now (null = nothing)
-let focusChirpTimeout = null;      // used by the Forest Ambience chirp scheduler
+let focusSoundPlayingKind = null;
+let focusChirpTimeout = null;
 
 function ensureFocusAudioContext(){
   if(!focusAudioCtx){
@@ -575,8 +550,6 @@ function ensureFocusAudioContext(){
   return focusAudioCtx;
 }
 
-/** Builds one loopable buffer of "colored" noise. "white" sounds like soft
- *  rain/static; "brown" is deeper and warmer (a well-known concentration aid). */
 function buildNoiseBuffer(ctx, color){
   const bufferSize = 2 * ctx.sampleRate;
   const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
@@ -605,8 +578,6 @@ function stopFocusSound(){
   focusSoundPlayingKind = null;
 }
 
-/** A single short "chirp" — used by Forest Ambience — then schedules the
- *  next one after a random pause, for as long as focusChirpTimeout is alive. */
 function scheduleForestChirp(ctx, destination){
   const delay = 2000 + Math.random()*5000;
   focusChirpTimeout = setTimeout(()=>{
@@ -651,7 +622,6 @@ function startFocusSound(kind){
       focusNoiseSource.start();
 
     }else if(kind === "drone"){
-      // A soft, slow three-note pad (A2/E3/A3) — original, not sampled from anywhere.
       [110, 165, 220].forEach(freq=>{
         const o = ctx.createOscillator();
         o.type = "sine";
@@ -665,7 +635,6 @@ function startFocusSound(kind){
       });
 
     }else if(kind === "ocean"){
-      // Filtered noise with a slow rise-and-fall (LFO) to mimic waves washing in and out.
       const buffer = buildNoiseBuffer(ctx, "white");
       focusNoiseSource = ctx.createBufferSource();
       focusNoiseSource.buffer = buffer;
@@ -677,7 +646,7 @@ function startFocusSound(kind){
       waveGain.gain.value = 0.6;
       const lfo = ctx.createOscillator();
       lfo.type = "sine";
-      lfo.frequency.value = 0.15; // one "wave" roughly every ~6.5 seconds
+      lfo.frequency.value = 0.15;
       const lfoDepth = ctx.createGain();
       lfoDepth.gain.value = 0.4;
       lfo.connect(lfoDepth);
@@ -690,7 +659,6 @@ function startFocusSound(kind){
       focusNoiseSource.start();
 
     }else if(kind === "forest"){
-      // A soft noise bed plus occasional random bird-like chirps.
       const buffer = buildNoiseBuffer(ctx, "white");
       focusNoiseSource = ctx.createBufferSource();
       focusNoiseSource.buffer = buffer;
@@ -708,8 +676,6 @@ function startFocusSound(kind){
       scheduleForestChirp(ctx, focusGainNode);
 
     }else if(kind === "bowl"){
-      // A resonant, slowly-swelling tone (like a singing bowl) — a fundamental
-      // plus two close overtones that gently beat against each other.
       const swell = ctx.createGain();
       swell.gain.value = 0.9;
       const lfo = ctx.createOscillator();
@@ -733,12 +699,25 @@ function startFocusSound(kind){
         o.start();
         focusOscillators.push(o);
       });
+
+    }else {
+      // Custom Sound added by Admin
+      const customSound = state.customSounds.find(s => s.id === kind || s.title === kind);
+      if(customSound && customSound.audioUrl){
+        const audio = new Audio(customSound.audioUrl);
+        audio.loop = true;
+        audio.volume = state.focusSound.volume;
+        audio.play().catch(e => console.warn("Audio play failed:", e.message));
+        
+        focusNoiseSource = {
+          stop: () => { audio.pause(); audio.currentTime = 0; },
+          disconnect: () => {}
+        };
+      }
     }
 
     focusSoundPlayingKind = kind;
   }catch(e){
-    // Autoplay restrictions or an unsupported browser — fail silently,
-    // the student can just press Start again once they've interacted with the page.
     console.warn("Focus sound couldn't start:", e.message);
   }
 }
@@ -748,9 +727,6 @@ function setFocusSoundVolume(v){
   if(focusGainNode) focusGainNode.gain.value = v;
 }
 
-/** Single source of truth for "should the ambient sound be playing right
- *  now, and is it the right one?" — safe to call every second; it's a
- *  no-op unless something actually needs to start, stop, or switch. */
 function updateFocusSoundForTimerState(){
   const desiredKind = state.focusSound.kind;
   const shouldPlay = state.timer.running && state.timer.phase === "focus" && desiredKind !== "none";
@@ -764,23 +740,40 @@ function updateFocusSoundForTimerState(){
 }
 
 function renderFocusSoundUI(){
-  $("#focusSoundSelect").value = state.focusSound.kind;
+  const select = $("#focusSoundSelect");
+  if(!select) return;
+
+  const currentVal = state.focusSound.kind;
+
+  let html = `
+    <option value="none">None</option>
+    <option value="rain">Soft Rain</option>
+    <option value="brown">Brown Noise</option>
+    <option value="drone">Deep Focus Drone</option>
+    <option value="ocean">Ocean Waves</option>
+    <option value="forest">Forest Ambience</option>
+    <option value="bowl">Meditation Bowl</option>
+  `;
+
+  if(state.customSounds && state.customSounds.length > 0){
+    html += `<optgroup label="Custom Admin Sounds">`;
+    state.customSounds.forEach(s => {
+      html += `<option value="${s.id}">${escapeHtml(s.title)}</option>`;
+    });
+    html += `</optgroup>`;
+  }
+
+  select.innerHTML = html;
+  select.value = currentVal;
   $("#focusSoundVolume").value = Math.round(state.focusSound.volume * 100);
   $("#focusSoundMuteBtn").textContent = state.focusSound.volume > 0 ? "Mute" : "Unmute";
 }
 
 /* =============================================================================
    FIRESTORE ACTIVITY SYNC
-   -----------------------------------------------------------------------------
-   One computed "snapshot" object represents everything the Admin Dashboard
-   needs to show for this student. It's built entirely from state that
-   already exists (taskStats, calculateStreak, studyMinutesForRange, the
-   timer) — nothing is duplicated or tracked twice. We only write to
-   Firestore when the snapshot actually changes, plus a periodic heartbeat,
-   so a running timer doesn't hammer the database every second.
 ============================================================================= */
-const IDLE_LIMIT_MS = 5 * 60 * 1000; // 5 minutes, per spec
-const HEARTBEAT_MS = 20 * 1000;      // keeps lastSeen fresh even if nothing changed
+const IDLE_LIMIT_MS = 5 * 60 * 1000;
+const HEARTBEAT_MS = 20 * 1000;
 
 let idleTimer = null;
 let isIdle = false;
@@ -819,14 +812,6 @@ function computeActivitySnapshot(){
   };
 }
 
-/** Called from every requested sync point: timer changes, task completion,
- *  study-hour changes, visibility changes, idle/active transitions. Only
- *  actually talks to Firestore when something *meaningful* changed — the
- *  live "currentTimer" string is deliberately excluded from that check
- *  (it ticks every second while a session runs, which would otherwise
- *  turn every second into a Firestore write). The 20s heartbeat below
- *  keeps currentTimer reasonably fresh for the Admin Dashboard without
- *  paying that cost. */
 function syncActivityIfChanged(){
   if(!currentStudent) return;
   const snapshot = computeActivitySnapshot();
@@ -837,9 +822,6 @@ function syncActivityIfChanged(){
   updateStudentActivity(currentStudent.uid, snapshot);
 }
 
-/** Runs on a timer regardless of whether anything changed, so an admin
- *  watching the dashboard can always tell a student is still connected
- *  (their lastSeen keeps advancing). */
 function startHeartbeat(){
   if(heartbeatInterval) clearInterval(heartbeatInterval);
   heartbeatInterval = setInterval(()=>{
@@ -870,13 +852,12 @@ function bindIdleDetection(){
   resetIdleTimer();
 
   document.addEventListener("visibilitychange", ()=>{
-    // Page Hidden / Page Visible, on top of the existing timer-catch-up listener.
     syncActivityIfChanged();
     if(!document.hidden) resetIdleTimer();
   });
 }
 
-/* ---------- Alarm: loud, attention-grabbing, stoppable, with vibration ---------- */
+/* ---------- Alarm ---------- */
 function playAlarm(){
   stopAlarm();
   const AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -920,20 +901,20 @@ function stopAlarm(){
   if(btn) btn.hidden = true;
 }
 
-/* ---------- Screen Wake Lock: best-effort, prevents auto-sleep while a focus session runs ---------- */
+/* ---------- Screen Wake Lock ---------- */
 async function requestWakeLock(){
   try{
     if("wakeLock" in navigator){
       wakeLockSentinel = await navigator.wakeLock.request("screen");
       wakeLockSentinel.addEventListener("release", ()=>{ wakeLockSentinel = null; });
     }
-  }catch(e){ /* not supported or denied — the timestamp-based timer below still self-corrects */ }
+  }catch(e){}
 }
 function releaseWakeLock(){
   if(wakeLockSentinel){ wakeLockSentinel.release().catch(()=>{}); wakeLockSentinel = null; }
 }
 
-/* ---------- Timer: timestamp-based so it self-corrects after being backgrounded/locked ---------- */
+/* ---------- Timer ---------- */
 function advancePhase(){
   const finishedPhase = state.timer.phase;
   const finishedMinutes = finishedPhase === "focus" ? state.timer.workMinutes : state.timer.breakMinutes;
@@ -1168,9 +1149,6 @@ function initNotifications(){
   }
 }
 
-// Runs once, right after a student successfully logs in / registers.
-// (This used to be called on page load directly — now it's gated by auth,
-// see the "AUTH BOOTSTRAP" section at the bottom of this file.)
 function initApp(){
   loadState();
   bindEvents();
@@ -1178,7 +1156,6 @@ function initApp(){
   if(!state.timer.remaining) state.timer.remaining = state.timer.workMinutes * 60;
 
   if(state.timer.running && state.timer.endAt){
-    // catch up on any time that passed while the page was closed/backgrounded
     evaluateTimer(true);
   }else if(state.timer.running && !state.timer.endAt){
     state.timer.endAt = Date.now() + state.timer.remaining*1000;
@@ -1191,14 +1168,10 @@ function initApp(){
   setInterval(renderClock, 1000);
   window.addEventListener("beforeunload", saveState);
 
-  // --- Activity tracking: website opened, plus ongoing idle/heartbeat sync ---
   bindIdleDetection();
   startHeartbeat();
   syncActivityIfChanged();
 
-  // Best-effort "website closed" signal. Browsers can kill the page before
-  // this finishes, so the Admin Dashboard also treats a stale lastSeen
-  // (see ADMIN_STALE_MS below) as offline regardless of this signal.
   window.addEventListener("pagehide", ()=>{
     if(currentStudent){
       updateStudentActivity(currentStudent.uid, {
@@ -1210,7 +1183,7 @@ function initApp(){
 }
 
 /* =============================================================================
-   AUTH SCREEN — Login / Register / Registration-success popup
+   AUTH SCREEN
 ============================================================================= */
 function showAuthScreen(){
   $("#authScreen").hidden = false;
@@ -1236,7 +1209,6 @@ function setAuthTab(tab){
 function openRegistrationSuccessModal(profile){
   $("#modalStudentId").textContent = profile.studentId;
   $("#registrationSuccessModal").hidden = false;
-  // Stash the pending profile until the student confirms they wrote it down.
   $("#registrationSuccessModal").dataset.pendingUid = profile.uid;
 }
 
@@ -1289,7 +1261,6 @@ function bindAuthEvents(){
     try{
       await navigator.clipboard.writeText(id);
     }catch(e){
-      // Fallback for browsers without Clipboard API access
       const ta = document.createElement("textarea");
       ta.value = id;
       document.body.appendChild(ta);
@@ -1328,17 +1299,9 @@ function friendlyAuthError(err){
 
 /* =============================================================================
    ADMIN DASHBOARD
-   -----------------------------------------------------------------------------
-   Hidden behind a small "Admin" button + a plain password check. Note: this
-   password check happens in the browser, so it only hides the dashboard's
-   *interface* — it is not a substitute for real server-side security. See
-   the README for how to lock the underlying Firestore data down further if
-   that matters for your use case.
 ============================================================================= */
 const ADMIN_PASSWORD = "admin4321";
-const ADMIN_STALE_MS = 45 * 1000; // if lastSeen is older than this, treat as offline
-                                  // even if the stored status says otherwise —
-                                  // covers tabs closed without a clean "offline" signal.
+const ADMIN_STALE_MS = 45 * 1000;
 
 let adminUnsubscribe = null;
 let adminStudents = [];
@@ -1411,6 +1374,60 @@ function bindAdminEvents(){
       btn.textContent = "Delete";
     }
   });
+
+  // Admin Sound Form
+  const adminSoundForm = $("#adminSoundForm");
+  if(adminSoundForm){
+    adminSoundForm.addEventListener("submit", async (e)=>{
+      e.preventDefault();
+      const title = $("#adminSoundTitle").value;
+      const url = $("#adminSoundUrl").value;
+      try{
+        await addCustomSoundRecord(title, url);
+        toast("Focus sound added successfully!");
+        adminSoundForm.reset();
+      }catch(err){
+        alert("Failed to add sound: " + err.message);
+      }
+    });
+  }
+
+  // Admin Sound Delete
+  const adminSoundList = $("#adminSoundList");
+  if(adminSoundList){
+    adminSoundList.addEventListener("click", async (e)=>{
+      const btn = e.target.closest('[data-action="delete-sound"]');
+      if(!btn) return;
+      const { id, title } = btn.dataset;
+      if(!confirm(`Delete focus sound "${title}"?`)) return;
+      try{
+        await deleteCustomSoundRecord(id);
+        toast(`Sound "${title}" deleted`);
+      }catch(err){
+        alert("Couldn't delete sound: " + err.message);
+      }
+    });
+  }
+}
+
+function renderAdminSounds(){
+  const list = $("#adminSoundList");
+  if(!list) return;
+
+  if(!state.customSounds || state.customSounds.length === 0){
+    list.innerHTML = `<p class="empty-note">No custom sounds added yet.</p>`;
+    return;
+  }
+
+  list.innerHTML = state.customSounds.map(s => `
+    <div style="display:flex; align-items:center; justify-content:space-between; background:var(--panel-2); padding:8px 12px; border-radius:12px; border:1px solid var(--line);">
+      <span><strong>${escapeHtml(s.title)}</strong></span>
+      <div style="display:flex; gap:10px; align-items:center;">
+        <audio controls src="${s.audioUrl}" style="height:28px; max-width:180px;"></audio>
+        <button class="btn danger admin-delete-btn" data-action="delete-sound" data-id="${s.id}" data-title="${escapeHtml(s.title)}">Delete</button>
+      </div>
+    </div>
+  `).join("");
 }
 
 function openAdminDashboard(){
@@ -1422,6 +1439,7 @@ function openAdminDashboard(){
   }
   $("#adminPasswordModal").hidden = true;
   $("#adminDashboard").hidden = false;
+  renderAdminSounds();
   if(!adminUnsubscribe){
     adminUnsubscribe = watchAllStudents((students)=>{
       adminStudents = students;
@@ -1486,14 +1504,15 @@ function capitalize(s){ return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
 
 /* =============================================================================
    AUTH BOOTSTRAP
-   -----------------------------------------------------------------------------
-   The very first thing that runs. Shows the login/register screen, wires up
-   the Admin button (available even before login, per spec), and lets
-   Firebase tell us if a session is already active (e.g. a page refresh)
-   so the student doesn't have to log in again every time.
 ============================================================================= */
 bindAuthEvents();
 bindAdminEvents();
+
+watchCustomSounds((sounds) => {
+  state.customSounds = sounds;
+  renderFocusSoundUI();
+  renderAdminSounds();
+});
 
 watchAuthState(async (user)=>{
   if(user){
