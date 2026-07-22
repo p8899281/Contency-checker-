@@ -544,17 +544,14 @@ let focusChirpTimeout = null;
 let activeCustomAudio = null;
 let userPausedSound = false;
 
-// সাইলেন্ট অডিও লিঙ্ক (যা ডিফল্ট সাউন্ডগুলোর সময়ও নোটিফিকেশন বার অ্যাক্টিভ রাখে)
 const SILENT_AUDIO_URI = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=";
 
-/** সব সাউন্ডের লিস্ট পাওয়ার হেল্পার (ডিফল্ট + কাস্টম) */
 function getAllSoundKinds() {
   const defaultKinds = ["rain", "brown", "drone", "ocean", "forest", "bowl"];
   const customKinds = (state.customSounds || []).map(s => s.id);
   return [...defaultKinds, ...customKinds];
 }
 
-/** 🎵 নোটিফিকেশন বার থেকে Next/Prev চেপে সাউন্ড পরিবর্তন করার লজিক */
 function switchSoundTrack(direction) {
   const kinds = getAllSoundKinds();
   if (kinds.length === 0) return;
@@ -571,7 +568,6 @@ function switchSoundTrack(direction) {
   autosave();
 }
 
-/** ⏱️ নোটিফিকেশন বারে সময়, প্লে/পজ এবং নেক্সট/প্রিভিয়াস কন্ট্রোল */
 function updateMediaSessionMetadata(){
   if ('mediaSession' in navigator && state.timer.running && state.timer.phase === "focus") {
     let soundTitle = "Focus Sound";
@@ -594,10 +590,13 @@ function updateMediaSessionMetadata(){
       album: 'Constancy Checker by Soumen'
     });
 
+    navigator.mediaSession.playbackState = userPausedSound ? 'paused' : 'playing';
+
     navigator.mediaSession.setActionHandler('play', () => {
       userPausedSound = false;
       if (activeCustomAudio) activeCustomAudio.play().catch(()=>{});
       if (focusAudioCtx && focusAudioCtx.state === "suspended") focusAudioCtx.resume().catch(()=>{});
+      if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
       updateFocusSoundForTimerState();
     });
 
@@ -605,9 +604,9 @@ function updateMediaSessionMetadata(){
       userPausedSound = true;
       if (activeCustomAudio) activeCustomAudio.pause();
       if (focusAudioCtx && focusAudioCtx.state === "running") focusAudioCtx.suspend().catch(()=>{});
+      if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
     });
 
-    // 👈 নোটিফিকেশন বারে নেক্সট এবং প্রিভিয়াস সাউন্ড বাটন যুক্ত করা হলো
     navigator.mediaSession.setActionHandler('previoustrack', () => switchSoundTrack(-1));
     navigator.mediaSession.setActionHandler('nexttrack', () => switchSoundTrack(1));
   }
@@ -679,7 +678,7 @@ function startFocusSound(kind){
   stopFocusSound();
   if(kind === "none") return;
 
-  // ডিফল্ট সিন্থেসাইজড সাউন্ডগুলোর জন্য নোটিফিকেশন সেশন সচল রাখার সাইলেন্ট অডিও
+  // 👈 ডিফল্ট সাউন্ড চলাকালেও নোটিফিকেশন বারটি ধরে রাখার জন্য সাইলেন্ট অডিও সেশন
   if (kind === "rain" || kind === "brown" || kind === "drone" || kind === "ocean" || kind === "forest" || kind === "bowl") {
     activeCustomAudio = new Audio(SILENT_AUDIO_URI);
     activeCustomAudio.loop = true;
@@ -1048,14 +1047,21 @@ function releaseWakeLock(){
 function advancePhase(){
   const finishedPhase = state.timer.phase;
   const finishedMinutes = finishedPhase === "focus" ? state.timer.workMinutes : state.timer.breakMinutes;
+  
   if(finishedPhase === "focus"){
-    state.focusSessions.push({ date: todayISO(), minutes: finishedMinutes, timestamp: state.timer.endAt });
+    state.focusSessions.push({ date: todayISO(), minutes: finishedMinutes, timestamp: Date.now() });
     state.timer.phase = "break";
+    state.timer.remaining = state.timer.breakMinutes * 60;
   }else{
     state.timer.phase = "focus";
+    state.timer.remaining = state.timer.workMinutes * 60;
   }
-  const nextMinutes = state.timer.phase === "focus" ? state.timer.workMinutes : state.timer.breakMinutes;
-  state.timer.endAt += nextMinutes * 60000;
+  
+  // 👈 ফোকাস টাইমার বা ব্রেক টাইমার শেষ হলে টাইমার অটোমেটিক পজ হয়ে থাকবে
+  state.timer.running = false;
+  state.timer.endAt = null;
+  releaseWakeLock();
+  stopFocusSound();
 }
 
 function evaluateTimer(triggerEffects){
@@ -1065,17 +1071,20 @@ function evaluateTimer(triggerEffects){
   }
   const now = Date.now();
   let completedAny = false;
-  let guard = 0;
-  while(state.timer.endAt <= now && guard < 200){
+  
+  if(state.timer.endAt <= now){
     advancePhase();
     completedAny = true;
-    guard++;
   }
-  state.timer.remaining = Math.max(0, Math.round((state.timer.endAt - now)/1000));
+  
+  if(state.timer.running){
+    state.timer.remaining = Math.max(0, Math.round((state.timer.endAt - now)/1000));
+  }
+  
   updateFocusSoundForTimerState();
   if(completedAny && triggerEffects){
     playAlarm();
-    notify("Focus session complete", "Nice work. Keep going.");
+    notify("Timer Finished", state.timer.phase === "break" ? "Focus session complete! Time for a break." : "Break finished! Ready to focus?");
   }
   renderTimer();
   autosave();
