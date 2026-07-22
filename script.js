@@ -71,7 +71,6 @@ function loadState(){
       );
       state.focusSound = Object.assign({ kind:"none", volume:0.4 }, saved.focusSound || {});
       
-      // Legacy tasks migration to support precise completion dates
       if(state.tasks && Array.isArray(state.tasks)){
         state.tasks.forEach(t => {
           if(!t.createdAt) t.createdAt = todayISO();
@@ -139,14 +138,16 @@ function getGreeting(){
 function taskStats(){
   const today = todayISO();
   const todaysTasks = state.tasks.filter(t => t.createdAt === today);
-  const completedToday = state.tasks.filter(t => t.done && t.completedAt === today).length;
+  const completedToday = todaysTasks.filter(t => t.done && t.completedAt === today).length;
   const pendingToday = todaysTasks.filter(t => !t.done).length;
+  const pendingCompletedToday = state.tasks.filter(t => t.done && t.completedAt === today && t.createdAt < today).length;
 
   return {
     totalToday: todaysTasks.length,
-    pending: pendingToday,
-    completed: completedToday,
-    completionPercent: todaysTasks.length ? Math.round((todaysTasks.filter(t => t.done && t.completedAt === today).length / todaysTasks.length) * 100) : 0
+    completedToday,
+    pendingToday,
+    pendingCompletedToday,
+    completionPercent: todaysTasks.length ? Math.round((completedToday / todaysTasks.length) * 100) : 0
   };
 }
 
@@ -169,10 +170,13 @@ function renderStats(){
   const now = new Date();
   const weekStart = startOfWeek(now);
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const sixMonthStart = new Date(now.getFullYear(), now.getMonth() - 6, now.getDate());
 
   const todayMinutes = studyMinutesForRange(new Date(today+"T00:00:00"), new Date(today+"T23:59:59"));
   const weekMinutes = studyMinutesForRange(weekStart, now);
   const monthMinutes = studyMinutesForRange(monthStart, now);
+  const sixMonthMinutes = studyMinutesForRange(sixMonthStart, now);
+
   const allDays = [...new Set(state.focusSessions.map(s => s.date))].length || 1;
   const avg = Math.round(monthMinutes / allDays);
 
@@ -180,34 +184,41 @@ function renderStats(){
   const streak = calculateStreak();
 
   const st = taskStats();
-  $("#todayTasksCount").textContent = st.totalToday;
-  $("#pendingTasksCount").textContent = st.pending;
-  $("#completedTasksCount").textContent = st.completed;
-  $("#todayStudyHours").textContent = formatMinutes(todayMinutes);
-  $("#completionPercent").textContent = `${st.completionPercent}%`;
 
-  $("#sidebarStreak").textContent = `${streak} days`;
-  $("#sidebarTodayHours").textContent = formatMinutes(todayMinutes);
+  // Home View Stats
+  if($("#todayTasksCount")) $("#todayTasksCount").textContent = st.totalToday;
+  if($("#pendingTasksCount")) $("#pendingTasksCount").textContent = st.pendingToday;
+  if($("#completedTasksCount")) $("#completedTasksCount").textContent = st.completedToday;
+  if($("#todayStudyHours")) $("#todayStudyHours").textContent = formatMinutes(todayMinutes);
+  if($("#completionPercent")) $("#completionPercent").textContent = `${st.completionPercent}%`;
 
-  $("#dashTodayTasks").textContent = st.totalToday;
-  $("#dashPendingTasks").textContent = st.pending;
-  $("#dashCompletedTasks").textContent = st.completed;
-  $("#dashTodayHours").textContent = formatMinutes(todayMinutes);
-  $("#dashStreak").textContent = `${streak} days`;
-  $("#dashWeeklyProgress").textContent = `${Math.min(100, Math.round((weekMinutes / (7*60)) * 100))}%`;
-  $("#dashMonthlyProgress").textContent = `${Math.min(100, Math.round((monthMinutes / (30*60)) * 100))}%`;
+  // Sidebar
+  if($("#sidebarStreak")) $("#sidebarStreak").textContent = `${streak} days`;
+  if($("#sidebarTodayHours")) $("#sidebarTodayHours").textContent = formatMinutes(todayMinutes);
 
-  $("#statsToday").textContent = formatMinutes(todayMinutes);
-  $("#statsWeekly").textContent = formatMinutes(weekMinutes);
-  $("#statsMonthly").textContent = formatMinutes(monthMinutes);
-  $("#statsStreak").textContent = `${streak} days`;
-  $("#statsCompleted").textContent = completedTasks;
-  $("#statsAverage").textContent = formatMinutes(avg);
+  // Dashboard View (With 6 Months Progress)
+  if($("#dashTodayHours")) $("#dashTodayHours").textContent = formatMinutes(todayMinutes);
+  if($("#dashTodayTasks")) $("#dashTodayTasks").textContent = st.totalToday;
+  if($("#dashCompletedTasks")) $("#dashCompletedTasks").textContent = st.completedToday;
+  if($("#dashStreak")) $("#dashStreak").textContent = `${streak} days`;
+  if($("#dashWeeklyProgress")) $("#dashWeeklyProgress").textContent = `${Math.min(100, Math.round((weekMinutes / (7*60)) * 100))}%`;
+  if($("#dashMonthlyProgress")) $("#dashMonthlyProgress").textContent = `${Math.min(100, Math.round((monthMinutes / (30*60)) * 100))}%`;
+  if($("#dash6MonthProgress")) $("#dash6MonthProgress").textContent = `${Math.min(100, Math.round((sixMonthMinutes / (180*60)) * 100))}%`;
+
+  // Statistics View
+  if($("#statsToday")) $("#statsToday").textContent = formatMinutes(todayMinutes);
+  if($("#statsWeekly")) $("#statsWeekly").textContent = formatMinutes(weekMinutes);
+  if($("#statsMonthly")) $("#statsMonthly").textContent = formatMinutes(monthMinutes);
+  if($("#statsStreak")) $("#statsStreak").textContent = `${streak} days`;
+  if($("#statsCompleted")) $("#statsCompleted").textContent = completedTasks;
+  if($("#statsAverage")) $("#statsAverage").textContent = formatMinutes(avg);
 
   const circle = $("#progressCircle");
-  const percent = st.completionPercent;
-  const dash = 314 - (314 * percent / 100);
-  circle.style.strokeDashoffset = dash;
+  if(circle){
+    const percent = st.completionPercent;
+    const dash = 314 - (314 * percent / 100);
+    circle.style.strokeDashoffset = dash;
+  }
 }
 
 function calculateStreak(){
@@ -229,7 +240,6 @@ function renderTasks(){
   list.innerHTML = "";
   const today = todayISO();
 
-  // Show tasks created today OR pending tasks from previous days
   state.tasks
     .filter(t => t.createdAt === today || (!t.done && t.createdAt < today))
     .sort((a,b)=> (a.done - b.done) || ({High:0,Medium:1,Low:2}[a.priority]-{High:0,Medium:1,Low:2}[b.priority]))
@@ -364,6 +374,7 @@ function renderTimerActiveState(){
 
 function renderChart(){
   const canvas = $("#progressChart");
+  if(!canvas) return;
   const ctx = canvas.getContext("2d");
   const w = canvas.width, h = canvas.height;
   ctx.clearRect(0,0,w,h);
@@ -701,26 +712,6 @@ function updateFocusSoundForTimerState(){
   }
 }
 
-function resumeFocusAudioOnReturn(){
-  if(userPausedSound || !state.timer.running || state.timer.phase !== "focus" || state.focusSound.kind === "none") return;
-
-  if (activeCustomAudio && activeCustomAudio.paused) {
-    activeCustomAudio.play().catch(()=>{});
-  } else if (!activeCustomAudio) {
-    startFocusSound(state.focusSound.kind);
-  }
-
-  const unlockOnGesture = () => {
-    if(!userPausedSound && activeCustomAudio && activeCustomAudio.paused){
-      activeCustomAudio.play().catch(()=>{});
-    }
-    document.removeEventListener("click", unlockOnGesture);
-    document.removeEventListener("touchstart", unlockOnGesture);
-  };
-  document.addEventListener("click", unlockOnGesture, { once: true });
-  document.addEventListener("touchstart", unlockOnGesture, { once: true });
-}
-
 function renderFocusSoundUI(){
   const select = $("#focusSoundSelect");
   if(!select) return;
@@ -1016,7 +1007,7 @@ function bindEvents(){
     if(!task) return;
     if(action === "toggle"){
       task.done = !task.done;
-      task.completedAt = task.done ? todayISO() : null; // Record exact date when completed
+      task.completedAt = task.done ? todayISO() : null;
       autosave();
     }
     if(action === "delete"){
