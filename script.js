@@ -712,7 +712,11 @@ function startFocusSound(kind){
         activeCustomAudio = new Audio(customSound.audioUrl);
         activeCustomAudio.loop = true;
         activeCustomAudio.volume = state.focusSound.volume;
-        activeCustomAudio.play().catch(e => console.warn("Audio play failed:", e.message));
+        activeCustomAudio.play().catch(e => {
+          console.warn("Audio play failed:", e.message);
+          // Autoplay ব্লক হলে প্লেইং স্টেট ক্লিয়ার করা হলো
+          focusSoundPlayingKind = null;
+        });
         
         focusNoiseSource = {
           stop: () => {
@@ -730,6 +734,7 @@ function startFocusSound(kind){
     focusSoundPlayingKind = kind;
   }catch(e){
     console.warn("Focus sound couldn't start:", e.message);
+    focusSoundPlayingKind = null;
   }
 }
 
@@ -773,7 +778,6 @@ function renderFocusSoundUI(){
     html += `</optgroup>`;
   }
 
-  // Blinking Fix
   if(select.innerHTML.trim() !== html.trim()){
     const currentVal = state.focusSound.kind;
     select.innerHTML = html;
@@ -1203,6 +1207,8 @@ function initApp(){
       if(ctx && ctx.state === "suspended"){
         ctx.resume();
       }
+      // Force reset playing status so sound is forced to restart on user click
+      focusSoundPlayingKind = null;
       if(resumeModal) resumeModal.hidden = true;
       updateFocusSoundForTimerState();
     };
@@ -1548,6 +1554,10 @@ watchCustomSounds((sounds) => {
   state.customSounds = sounds;
   renderFocusSoundUI();
   renderAdminSounds();
+  if(state.timer.running && state.timer.phase === "focus"){
+    focusSoundPlayingKind = null;
+    updateFocusSoundForTimerState();
+  }
 });
 
 watchAuthState(async (user)=>{
