@@ -184,10 +184,7 @@ function renderStats(){
   const completedTasks = state.tasks.filter(t => t.done).length;
   const totalTasksAllTime = state.tasks.length;
 
-  // 🎯 1. same-day completion: created date == completed date
   const totalCompletedSameDay = state.tasks.filter(t => t.done && t.completedAt && t.completedAt === t.createdAt).length;
-  
-  // 🎯 2. pending completion: created on past date, completed on later date
   const totalCompletedPending = state.tasks.filter(t => t.done && t.completedAt && t.completedAt > t.createdAt).length;
 
   const streak = calculateStreak();
@@ -204,7 +201,7 @@ function renderStats(){
   if($("#sidebarStreak")) $("#sidebarStreak").textContent = `${streak} days`;
   if($("#sidebarTodayHours")) $("#sidebarTodayHours").textContent = formatMinutes(todayMinutes);
 
-  // Dashboard View (Custom-labeled & Aggregated Summary)
+  // Dashboard View
   if($("#dashTotalHours")) $("#dashTotalHours").textContent = formatMinutes(totalMinutesAllTime);
   if($("#dashTotalTasks")) $("#dashTotalTasks").textContent = totalTasksAllTime;
   if($("#dashTotalCompletedSameDay")) $("#dashTotalCompletedSameDay").textContent = totalCompletedSameDay;
@@ -230,9 +227,6 @@ function renderStats(){
   }
 }
 
-/** 🔥 Study Streak Calculator: 
- *  Counts streak ONLY if user has at least 1 MINUTE of focus time on that day.
- */
 function calculateStreak(){
   const minsPerDay = {};
   state.focusSessions.forEach(s => {
@@ -622,12 +616,94 @@ function notify(title, body){
 }
 
 /* =============================================================================
-   PURE MP3 FOCUS SOUND & MEDIA SESSION CONTROLS
+   💾 INDEXEDDB OFFLINE SOUND CACHE ENGINE
+============================================================================= */
+const DB_NAME = "SoumenFocusSoundDB";
+const STORE_NAME = "sound_blobs";
+
+function openAudioDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME);
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function getCachedAudioUrl(id) {
+  try {
+    const db = await openAudioDB();
+    return new Promise((resolve) => {
+      const tx = db.transaction(STORE_NAME, "readonly");
+      const store = tx.objectStore(STORE_NAME);
+      const req = store.get(id);
+      req.onsuccess = () => {
+        if (req.result) {
+          const blobUrl = URL.createObjectURL(req.result);
+          resolve(blobUrl);
+        } else {
+          resolve(null);
+        }
+      };
+      req.onerror = () => resolve(null);
+    });
+  } catch (e) {
+    return null;
+  }
+}
+
+async function cacheAudioBlob(id, blob) {
+  try {
+    const db = await openAudioDB();
+    const tx = db.transaction(STORE_NAME, "readwrite");
+    const store = tx.objectStore(STORE_NAME);
+    store.put(blob, id);
+  } catch (e) {}
+}
+
+/* =============================================================================
+   OFFLINE-PROOF MEDIA SESSION & FOCUS SOUND CONTROLS
 ============================================================================= */
 let activeCustomAudio = null;
+let silentKeepAliveAudio = null;
 let focusSoundVolumeBeforeMute = 0.4;
 let focusSoundPlayingKind = null;
 let userPausedSound = false;
+
+function createSilentAudioUrl() {
+  const sampleRate = 8000;
+  const numSamples = sampleRate;
+  const buffer = new Uint8Array(44 + numSamples);
+  buffer.set([
+    0x52,0x49,0x46,0x46, 36+numSamples,0,0,0, 0x57,0x41,0x56,0x45, 
+    0x66,0x6d,0x74,0x20, 16,0,0,0, 1,0, 1,0, 0x40,0x1f,0,0, 0x40,0x1f,0,0, 1,0, 8,0, 
+    0x64,0x61,0x74,0x61, numSamples,0,0,0
+  ]);
+  for(let i=0; i<numSamples; i++) buffer[44+i] = 128;
+  return URL.createObjectURL(new Blob([buffer], {type: "audio/wav"}));
+}
+const SILENT_AUDIO_URL = createSilentAudioUrl();
+
+function ensureSilentKeepAlive(){
+  if(!silentKeepAliveAudio){
+    silentKeepAliveAudio = new Audio(SILENT_AUDIO_URL);
+    silentKeepAliveAudio.loop = true;
+  }
+  if(silentKeepAliveAudio.paused && state.timer.running){
+    silentKeepAliveAudio.play().catch(()=>{});
+  }
+}
+
+function stopSilentKeepAlive(){
+  if(silentKeepAliveAudio){
+    try{ silentKeepAliveAudio.pause(); silentKeepAliveAudio.currentTime = 0; }catch(e){}
+  }
+}
 
 function getAllSoundKinds() {
   return (state.customSounds || []).map(s => s.id);
@@ -650,9 +726,10 @@ function switchSoundTrack(direction) {
 }
 
 function updateMediaSessionMetadata(){
-  if ('mediaSession' in navigator && state.timer.running && activeCustomAudio) {
+  if ('mediaSession' in navigator && state.timer.running) {
+    let soundTitle = "Focus Session";
     const custom = state.customSounds.find(s => s.id === state.focusSound.kind || s.title === state.focusSound.kind);
-    const soundTitle = custom ? custom.title : "Focus Sound";
+    if(custom) soundTitle = custom.title;
 
     navigator.mediaSession.metadata = new MediaMetadata({
       title: `⏱️ ${formatTime(state.timer.remaining)} (${state.timer.phase.toUpperCase()}) · ${soundTitle}`,
@@ -664,6 +741,7 @@ function updateMediaSessionMetadata(){
 
     navigator.mediaSession.setActionHandler('play', () => {
       userPausedSound = false;
+      ensureSilentKeepAlive();
       if (activeCustomAudio) activeCustomAudio.play().catch(()=>{});
       if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
       updateFocusSoundForTimerState();
@@ -671,6 +749,7 @@ function updateMediaSessionMetadata(){
 
     navigator.mediaSession.setActionHandler('pause', () => {
       userPausedSound = true;
+      stopSilentKeepAlive();
       if (activeCustomAudio) activeCustomAudio.pause();
       if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
     });
@@ -685,29 +764,42 @@ function stopFocusSound(){
     try{ activeCustomAudio.pause(); activeCustomAudio.currentTime = 0; }catch(e){}
     activeCustomAudio = null;
   }
+  stopSilentKeepAlive();
   focusSoundPlayingKind = null;
 }
 
-function startFocusSound(kind){
+async function startFocusSound(kind){
   stopFocusSound();
+  ensureSilentKeepAlive();
+
   if(kind === "none") return;
 
   const customSound = state.customSounds.find(s => s.id === kind || s.title === kind);
   if(customSound && customSound.audioUrl){
     try {
-      activeCustomAudio = new Audio(customSound.audioUrl);
+      let finalAudioSrc = customSound.audioUrl;
+      
+      // 💾 Check Local Cached Audio for Offline Use
+      const cachedBlobUrl = await getCachedAudioUrl(customSound.id);
+      if (cachedBlobUrl) {
+        finalAudioSrc = cachedBlobUrl;
+      }
+
+      activeCustomAudio = new Audio(finalAudioSrc);
       activeCustomAudio.loop = true;
       activeCustomAudio.volume = state.focusSound.volume;
-      
-      activeCustomAudio.addEventListener('pause', () => {
-        if ('mediaSession' in navigator) {
-          navigator.mediaSession.playbackState = 'paused';
-        }
-      });
 
       activeCustomAudio.play().then(() => {
         focusSoundPlayingKind = kind;
         updateMediaSessionMetadata();
+
+        // 📥 If fetched online successfully for first time, Cache it locally for offline!
+        if (!cachedBlobUrl && navigator.onLine) {
+          fetch(customSound.audioUrl)
+            .then(res => res.blob())
+            .then(blob => cacheAudioBlob(customSound.id, blob))
+            .catch(() => {});
+        }
       }).catch(e => {
         console.warn("Audio play failed:", e.message);
         focusSoundPlayingKind = null;
@@ -728,15 +820,19 @@ function updateFocusSoundForTimerState(){
   if (userPausedSound) return;
 
   const desiredKind = state.focusSound.kind;
-  const shouldPlay = state.timer.running && state.timer.phase === "focus" && desiredKind !== "none";
+  const shouldPlay = state.timer.running && state.timer.phase === "focus";
 
   if(!shouldPlay){
     if(focusSoundPlayingKind !== null) stopFocusSound();
     return;
   }
 
-  if(focusSoundPlayingKind !== desiredKind){
+  ensureSilentKeepAlive();
+
+  if(desiredKind !== "none" && focusSoundPlayingKind !== desiredKind){
     startFocusSound(desiredKind);
+  } else if(activeCustomAudio && activeCustomAudio.paused){
+    activeCustomAudio.play().catch(() => {});
   }
 }
 
@@ -1110,6 +1206,7 @@ function bindEvents(){
     state.timer.running = true;
     startTimerLoop();
     requestWakeLock();
+    ensureSilentKeepAlive();
     updateFocusSoundForTimerState();
     autosave();
   };
@@ -1119,6 +1216,7 @@ function bindEvents(){
     state.timer.running = false;
     state.timer.endAt = null;
     releaseWakeLock();
+    stopSilentKeepAlive();
     updateFocusSoundForTimerState();
     autosave();
   };
@@ -1130,6 +1228,7 @@ function bindEvents(){
     state.timer.running = true;
     startTimerLoop();
     requestWakeLock();
+    ensureSilentKeepAlive();
     updateFocusSoundForTimerState();
     autosave();
   };
@@ -1143,6 +1242,7 @@ function bindEvents(){
     state.timer.phase = activeViewMode;
     state.timer.remaining = (activeViewMode === "focus" ? state.timer.workMinutes : state.timer.breakMinutes) * 60;
     releaseWakeLock();
+    stopSilentKeepAlive();
     updateFocusSoundForTimerState();
     autosave();
   };
@@ -1217,7 +1317,10 @@ function bindEvents(){
   document.addEventListener("visibilitychange", ()=>{
     if(!document.hidden){
       evaluateTimer(true);
-      if(state.timer.running) requestWakeLock();
+      if(state.timer.running) {
+        requestWakeLock();
+        ensureSilentKeepAlive();
+      }
       renderAll();
     }
   });
