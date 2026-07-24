@@ -61,6 +61,40 @@ let alarmAudioCtx = null;
 let currentStudent = null;
 let isClearingData = false;
 
+// 🔊 Silent Audio Engine to Force Android Background Execution
+let keepAliveAudio = null;
+function createSilentWavBlobUrl() {
+  const sampleRate = 8000;
+  const numSamples = sampleRate;
+  const buffer = new Uint8Array(44 + numSamples);
+  buffer.set([
+    0x52,0x49,0x46,0x46, 36+numSamples,0,0,0, 0x57,0x41,0x56,0x45, 
+    0x66,0x6d,0x74,0x20, 16,0,0,0, 1,0, 1,0, 0x40,0x1f,0,0, 0x40,0x1f,0,0, 1,0, 8,0, 
+    0x64,0x61,0x74,0x61, numSamples,0,0,0
+  ]);
+  for(let i=0; i<numSamples; i++) buffer[44+i] = 128;
+  return URL.createObjectURL(new Blob([buffer], {type: "audio/wav"}));
+}
+const SILENT_WAV_URL = createSilentWavBlobUrl();
+
+function startKeepAliveAudio() {
+  if (!keepAliveAudio) {
+    keepAliveAudio = new Audio(SILENT_WAV_URL);
+    keepAliveAudio.loop = true;
+    keepAliveAudio.volume = 0.01;
+  }
+  keepAliveAudio.play().catch(() => {});
+}
+
+function stopKeepAliveAudio() {
+  if (keepAliveAudio) {
+    try {
+      keepAliveAudio.pause();
+      keepAliveAudio.currentTime = 0;
+    } catch(e) {}
+  }
+}
+
 function loadState(){
   try{
     const saved = JSON.parse(localStorage.getItem(storageKey()));
@@ -362,12 +396,41 @@ function renderSettings(){
   $("#fontSize").value = state.settings.fontSize;
 }
 
-function syncServiceWorkerNotification() {
+function syncMediaSessionAndNotification() {
+  if (!state.timer.running) {
+    stopKeepAliveAudio();
+    if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+      navigator.serviceWorker.controller.postMessage({
+        type: "UPDATE_TIMER_NOTIFICATION",
+        running: false
+      });
+    }
+    return;
+  }
+
+  startKeepAliveAudio();
+
+  const timeText = formatTime(state.timer.remaining);
+  const phaseText = state.timer.phase.toUpperCase();
+
+  // MediaSession Metadata Update
+  if ('mediaSession' in navigator) {
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: `⏱️ ${timeText} (${phaseText})`,
+        artist: 'Constancy Checker by Soumen',
+        album: 'Focus Session Active'
+      });
+      navigator.mediaSession.playbackState = 'playing';
+    } catch(e) {}
+  }
+
+  // Service Worker Notification Sync
   if (navigator.serviceWorker && navigator.serviceWorker.controller) {
     navigator.serviceWorker.controller.postMessage({
       type: "UPDATE_TIMER_NOTIFICATION",
-      running: state.timer.running,
-      timeText: formatTime(state.timer.remaining),
+      running: true,
+      timeText: timeText,
       phase: state.timer.phase
     });
   }
@@ -404,8 +467,7 @@ function renderTimer(){
     }
   }
 
-  updateMediaSessionMetadata();
-  syncServiceWorkerNotification();
+  syncMediaSessionAndNotification();
 }
 
 function renderTimerActiveState(){
@@ -767,40 +829,9 @@ async function cacheAudioBlob(id, blob) {
    OFFLINE-PROOF MEDIA SESSION & FOCUS SOUND CONTROLS
 ============================================================================= */
 let activeCustomAudio = null;
-let silentKeepAliveAudio = null;
 let focusSoundVolumeBeforeMute = 0.4;
 let focusSoundPlayingKind = null;
 let userPausedSound = false;
-
-function createSilentAudioUrl() {
-  const sampleRate = 8000;
-  const numSamples = sampleRate;
-  const buffer = new Uint8Array(44 + numSamples);
-  buffer.set([
-    0x52,0x49,0x46,0x46, 36+numSamples,0,0,0, 0x57,0x41,0x56,0x45, 
-    0x66,0x6d,0x74,0x20, 16,0,0,0, 1,0, 1,0, 0x40,0x1f,0,0, 0x40,0x1f,0,0, 1,0, 8,0, 
-    0x64,0x61,0x74,0x61, numSamples,0,0,0
-  ]);
-  for(let i=0; i<numSamples; i++) buffer[44+i] = 128;
-  return URL.createObjectURL(new Blob([buffer], {type: "audio/wav"}));
-}
-const SILENT_AUDIO_URL = createSilentAudioUrl();
-
-function ensureSilentKeepAlive(){
-  if(!silentKeepAliveAudio){
-    silentKeepAliveAudio = new Audio(SILENT_AUDIO_URL);
-    silentKeepAliveAudio.loop = true;
-  }
-  if(silentKeepAliveAudio.paused && state.timer.running && !userPausedSound){
-    silentKeepAliveAudio.play().catch(()=>{});
-  }
-}
-
-function stopSilentKeepAlive(){
-  if(silentKeepAliveAudio){
-    try{ silentKeepAliveAudio.pause(); silentKeepAliveAudio.currentTime = 0; }catch(e){}
-  }
-}
 
 function getAllSoundKinds() {
   return (state.customSounds || []).map(s => s.id);
@@ -820,44 +851,6 @@ function switchSoundTrack(direction) {
   renderFocusSoundUI();
   startFocusSound(newKind);
   autosave();
-}
-
-function updateMediaSessionMetadata(){
-  if ('mediaSession' in navigator && state.timer.running) {
-    let soundTitle = "Timer Running";
-    if(state.focusSound.kind !== "none" && state.timer.phase === "focus"){
-      const custom = state.customSounds.find(s => s.id === state.focusSound.kind || s.title === state.focusSound.kind);
-      if(custom) soundTitle = custom.title;
-    }
-
-    try {
-      navigator.mediaSession.metadata = new MediaMetadata({
-        title: `⏱️ ${formatTime(state.timer.remaining)} (${state.timer.phase.toUpperCase()}) · ${soundTitle}`,
-        artist: 'Study with Nishtha · Ekagra',
-        album: 'Constancy Checker by Soumen'
-      });
-
-      navigator.mediaSession.playbackState = userPausedSound ? 'paused' : 'playing';
-
-      navigator.mediaSession.setActionHandler('play', () => {
-        userPausedSound = false;
-        ensureSilentKeepAlive();
-        if (activeCustomAudio) activeCustomAudio.play().catch(()=>{});
-        if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
-        updateFocusSoundForTimerState();
-      });
-
-      navigator.mediaSession.setActionHandler('pause', () => {
-        userPausedSound = true;
-        stopSilentKeepAlive();
-        if (activeCustomAudio) activeCustomAudio.pause();
-        if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
-      });
-
-      navigator.mediaSession.setActionHandler('previoustrack', () => switchSoundTrack(-1));
-      navigator.mediaSession.setActionHandler('nexttrack', () => switchSoundTrack(1));
-    } catch(e) {}
-  }
 }
 
 function stopFocusSound(){
@@ -889,7 +882,6 @@ async function startFocusSound(kind){
 
       activeCustomAudio.play().then(() => {
         focusSoundPlayingKind = kind;
-        updateMediaSessionMetadata();
 
         if (!cachedBlobUrl && navigator.onLine) {
           fetch(customSound.audioUrl)
@@ -915,12 +907,6 @@ function setFocusSoundVolume(v){
 
 function updateFocusSoundForTimerState(){
   if (userPausedSound) return;
-
-  if (state.timer.running) {
-    ensureSilentKeepAlive();
-  } else {
-    stopSilentKeepAlive();
-  }
 
   const desiredKind = state.focusSound.kind;
   const shouldPlaySound = state.timer.running && state.timer.phase === "focus" && desiredKind !== "none";
@@ -1132,9 +1118,9 @@ function advancePhase(){
   state.timer.endAt = null;
   releaseWakeLock();
   stopFocusSound();
+  stopKeepAliveAudio();
 }
 
-/** ⏱️ Real-time Differential Evaluation Engine: Never lags even if JS is throttled */
 function evaluateTimer(triggerEffects){
   if(!state.timer.running || !state.timer.endAt){
     renderTimer();
@@ -1202,6 +1188,7 @@ function bindEvents(){
         state.timer.remaining = state.timer.workMinutes * 60;
         releaseWakeLock();
         stopFocusSound();
+        stopKeepAliveAudio();
       }
       renderTimer();
       autosave();
@@ -1219,6 +1206,7 @@ function bindEvents(){
         state.timer.remaining = state.timer.breakMinutes * 60;
         releaseWakeLock();
         stopFocusSound();
+        stopKeepAliveAudio();
       }
       renderTimer();
       autosave();
@@ -1323,11 +1311,11 @@ function bindEvents(){
       }
     }
 
-    state.timer.endAt = Date.now() + state.timer.remaining * 1000; // 🎯 Absolute Future End Timestamp
+    state.timer.endAt = Date.now() + state.timer.remaining * 1000;
     state.timer.running = true;
     startTimerLoop();
     requestWakeLock();
-    ensureSilentKeepAlive();
+    startKeepAliveAudio();
     updateFocusSoundForTimerState();
     autosave();
   };
@@ -1337,7 +1325,7 @@ function bindEvents(){
     state.timer.running = false;
     state.timer.endAt = null;
     releaseWakeLock();
-    stopSilentKeepAlive();
+    stopKeepAliveAudio();
     updateFocusSoundForTimerState();
     autosave();
   };
@@ -1345,11 +1333,11 @@ function bindEvents(){
   $("#resumeTimer").onclick = () => {
     stopAlarm();
     userPausedSound = false;
-    state.timer.endAt = Date.now() + state.timer.remaining * 1000; // 🎯 Absolute Future End Timestamp
+    state.timer.endAt = Date.now() + state.timer.remaining * 1000;
     state.timer.running = true;
     startTimerLoop();
     requestWakeLock();
-    ensureSilentKeepAlive();
+    startKeepAliveAudio();
     updateFocusSoundForTimerState();
     autosave();
   };
@@ -1363,7 +1351,7 @@ function bindEvents(){
     state.timer.phase = activeViewMode;
     state.timer.remaining = (activeViewMode === "focus" ? state.timer.workMinutes : state.timer.breakMinutes) * 60;
     releaseWakeLock();
-    stopSilentKeepAlive();
+    stopKeepAliveAudio();
     updateFocusSoundForTimerState();
     autosave();
   };
@@ -1440,13 +1428,12 @@ function bindEvents(){
   $$('input[name="theme"]').forEach(r=> r.addEventListener("change", e => { state.settings.theme = e.target.value; autosave(); }));
   $("#resetSettings").onclick = ()=>{ state.settings = { theme:"dark", fontSize:16 }; autosave(); };
 
-  // 🔄 Absolute Clock Sync when returning from YouTube / Other Apps
   document.addEventListener("visibilitychange", ()=>{
     if(!document.hidden){
       evaluateTimer(true);
       if(state.timer.running) {
         requestWakeLock();
-        ensureSilentKeepAlive();
+        startKeepAliveAudio();
       }
       renderAll();
     }
@@ -1455,7 +1442,7 @@ function bindEvents(){
   window.addEventListener("focus", ()=>{
     evaluateTimer(true);
     if(state.timer.running){
-      ensureSilentKeepAlive();
+      startKeepAliveAudio();
     }
     renderAll();
   });
