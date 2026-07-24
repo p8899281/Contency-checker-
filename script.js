@@ -60,7 +60,7 @@ let alarmInterval = null;
 let alarmAudioCtx = null;
 let currentStudent = null;
 let isClearingData = false;
-let persistentNotification = null;
+let swRegistration = null;
 
 function loadState(){
   try{
@@ -193,18 +193,15 @@ function renderStats(){
   const streak = calculateStreak();
   const st = taskStats();
 
-  // Home View
   if($("#todayTasksCount")) $("#todayTasksCount").textContent = st.totalToday;
   if($("#pendingTasksCount")) $("#pendingTasksCount").textContent = st.pendingToday;
   if($("#completedTasksCount")) $("#completedTasksCount").textContent = st.completedToday;
   if($("#todayStudyHours")) $("#todayStudyHours").textContent = formatMinutes(todayMinutes);
   if($("#completionPercent")) $("#completionPercent").textContent = `${st.completionPercent}%`;
 
-  // Sidebar
   if($("#sidebarStreak")) $("#sidebarStreak").textContent = `${streak} days`;
   if($("#sidebarTodayHours")) $("#sidebarTodayHours").textContent = formatMinutes(todayMinutes);
 
-  // Dashboard View
   if($("#dashTotalHours")) $("#dashTotalHours").textContent = formatMinutes(totalMinutesAllTime);
   if($("#dashTotalTasks")) $("#dashTotalTasks").textContent = totalTasksAllTime;
   if($("#dashTotalCompletedSameDay")) $("#dashTotalCompletedSameDay").textContent = totalCompletedSameDay;
@@ -214,7 +211,6 @@ function renderStats(){
   if($("#dashMonthlyProgress")) $("#dashMonthlyProgress").textContent = `${Math.min(100, Math.round((monthMinutes / (30*60)) * 100))}%`;
   if($("#dash6MonthProgress")) $("#dash6MonthProgress").textContent = `${Math.min(100, Math.round((sixMonthMinutes / (180*60)) * 100))}%`;
 
-  // Statistics View
   if($("#statsToday")) $("#statsToday").textContent = formatMinutes(todayMinutes);
   if($("#statsWeekly")) $("#statsWeekly").textContent = formatMinutes(weekMinutes);
   if($("#statsMonthly")) $("#statsMonthly").textContent = formatMinutes(monthMinutes);
@@ -367,25 +363,15 @@ function renderSettings(){
   $("#fontSize").value = state.settings.fontSize;
 }
 
-/** 📲 UNBREAKABLE SYSTEM NOTIFICATION COUNTDOWN (YOUTUBE / BACKGROUND PROOF) */
-function updatePersistentSystemNotification(){
-  if("Notification" in window && Notification.permission === "granted"){
-    if(state.timer.running){
-      const title = `⏱️ ${formatTime(state.timer.remaining)} (${state.timer.phase.toUpperCase()})`;
-      const body = `Constancy Checker · Focus Session Active`;
-
-      try {
-        persistentNotification = new Notification(title, {
-          body: body,
-          tag: "constancy-timer-countdown", // 👈 Ensures same notification updates in-place without sound spam
-          renotify: false,
-          silent: true
-        });
-      } catch(e) {}
-    } else if(persistentNotification) {
-      persistentNotification.close();
-      persistentNotification = null;
-    }
+/** 🚀 SERVICE WORKER PERSISTENT BACKGROUND NOTIFICATION SENDER */
+function syncServiceWorkerNotification() {
+  if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+    navigator.serviceWorker.controller.postMessage({
+      type: "UPDATE_TIMER_NOTIFICATION",
+      running: state.timer.running,
+      timeText: formatTime(state.timer.remaining),
+      phase: state.timer.phase
+    });
   }
 }
 
@@ -421,7 +407,7 @@ function renderTimer(){
   }
 
   updateMediaSessionMetadata();
-  updatePersistentSystemNotification();
+  syncServiceWorkerNotification();
 }
 
 function renderTimerActiveState(){
@@ -1183,10 +1169,17 @@ function startTimerLoop(){
   }, 1000);
 }
 
+function registerServiceWorker() {
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("./sw.js").then((reg) => {
+      swRegistration = reg;
+    }).catch((err) => {});
+  }
+}
+
 function bindEvents(){
   $$(".nav-item").forEach(btn => btn.addEventListener("click", () => switchView(btn.dataset.view)));
 
-  // Dashboard Click Event Listener
   const cardHours = $("#cardTotalHours");
   const cardTasks = $("#cardTotalTasks");
   const cardSameDay = $("#cardCompletedSameDay");
@@ -1199,7 +1192,6 @@ function bindEvents(){
   if(cardPending) cardPending.onclick = () => openDashboardDetail("pending");
   if(dashCloseBtn) dashCloseBtn.onclick = () => { $("#dashDetailModal").hidden = true; };
 
-  // Mode Switchers
   const focusBtn = $("#switchToFocusBtn");
   const breakBtn = $("#switchToBreakBtn");
 
@@ -1294,7 +1286,6 @@ function bindEvents(){
     autosave();
   }));
 
-  // Single Input Custom Timer Logic
   $("#applyCustomTimer").addEventListener("click", ()=>{
     const activeViewMode = state.timer.selectedMode || state.timer.phase;
     const mins = Number($("#customMinutes").value);
@@ -1453,7 +1444,6 @@ function bindEvents(){
   $$('input[name="theme"]').forEach(r=> r.addEventListener("change", e => { state.settings.theme = e.target.value; autosave(); }));
   $("#resetSettings").onclick = ()=>{ state.settings = { theme:"dark", fontSize:16 }; autosave(); };
 
-  // 🔄 YouTube or background app switch sync engine
   document.addEventListener("visibilitychange", ()=>{
     if(!document.hidden){
       evaluateTimer(true);
@@ -1488,6 +1478,7 @@ function initNotifications(){
 }
 
 function initApp(){
+  registerServiceWorker();
   loadState();
   bindEvents();
   initNotifications();
@@ -1729,7 +1720,6 @@ function bindAdminEvents(){
     }
   });
 
-  // Admin Sound Form
   const adminSoundForm = $("#adminSoundForm");
   if(adminSoundForm){
     adminSoundForm.addEventListener("submit", async (e)=>{
@@ -1746,7 +1736,6 @@ function bindAdminEvents(){
     });
   }
 
-  // Admin Sound Delete
   const adminSoundList = $("#adminSoundList");
   if(adminSoundList){
     adminSoundList.addEventListener("click", async (e)=>{
