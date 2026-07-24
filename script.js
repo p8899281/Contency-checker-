@@ -60,7 +60,6 @@ let alarmInterval = null;
 let alarmAudioCtx = null;
 let currentStudent = null;
 let isClearingData = false;
-let swRegistration = null;
 
 function loadState(){
   try{
@@ -363,7 +362,6 @@ function renderSettings(){
   $("#fontSize").value = state.settings.fontSize;
 }
 
-/** 🚀 SERVICE WORKER PERSISTENT BACKGROUND NOTIFICATION SENDER */
 function syncServiceWorkerNotification() {
   if (navigator.serviceWorker && navigator.serviceWorker.controller) {
     navigator.serviceWorker.controller.postMessage({
@@ -1114,7 +1112,7 @@ function releaseWakeLock(){
   if(wakeLockSentinel){ wakeLockSentinel.release().catch(()=>{}); wakeLockSentinel = null; }
 }
 
-/* ---------- Timer ---------- */
+/* ---------- SYSTEM CLOCK DIFFERENTIAL TIMER ENGINE ---------- */
 function advancePhase(){
   const finishedPhase = state.timer.phase;
   const finishedMinutes = finishedPhase === "focus" ? state.timer.workMinutes : state.timer.breakMinutes;
@@ -1136,21 +1134,21 @@ function advancePhase(){
   stopFocusSound();
 }
 
+/** ⏱️ Real-time Differential Evaluation Engine: Never lags even if JS is throttled */
 function evaluateTimer(triggerEffects){
   if(!state.timer.running || !state.timer.endAt){
     renderTimer();
     return;
   }
+  
   const now = Date.now();
   let completedAny = false;
   
   if(state.timer.endAt <= now){
     advancePhase();
     completedAny = true;
-  }
-  
-  if(state.timer.running){
-    state.timer.remaining = Math.max(0, Math.round((state.timer.endAt - now)/1000));
+  } else {
+    state.timer.remaining = Math.max(0, Math.round((state.timer.endAt - now) / 1000));
   }
   
   if(completedAny && triggerEffects){
@@ -1171,9 +1169,7 @@ function startTimerLoop(){
 
 function registerServiceWorker() {
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("./sw.js").then((reg) => {
-      swRegistration = reg;
-    }).catch((err) => {});
+    navigator.serviceWorker.register("./sw.js").then((reg) => {}).catch((err) => {});
   }
 }
 
@@ -1327,7 +1323,7 @@ function bindEvents(){
       }
     }
 
-    state.timer.endAt = Date.now() + state.timer.remaining*1000;
+    state.timer.endAt = Date.now() + state.timer.remaining * 1000; // 🎯 Absolute Future End Timestamp
     state.timer.running = true;
     startTimerLoop();
     requestWakeLock();
@@ -1349,7 +1345,7 @@ function bindEvents(){
   $("#resumeTimer").onclick = () => {
     stopAlarm();
     userPausedSound = false;
-    state.timer.endAt = Date.now() + state.timer.remaining*1000;
+    state.timer.endAt = Date.now() + state.timer.remaining * 1000; // 🎯 Absolute Future End Timestamp
     state.timer.running = true;
     startTimerLoop();
     requestWakeLock();
@@ -1444,6 +1440,7 @@ function bindEvents(){
   $$('input[name="theme"]').forEach(r=> r.addEventListener("change", e => { state.settings.theme = e.target.value; autosave(); }));
   $("#resetSettings").onclick = ()=>{ state.settings = { theme:"dark", fontSize:16 }; autosave(); };
 
+  // 🔄 Absolute Clock Sync when returning from YouTube / Other Apps
   document.addEventListener("visibilitychange", ()=>{
     if(!document.hidden){
       evaluateTimer(true);
