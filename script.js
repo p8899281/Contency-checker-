@@ -59,6 +59,7 @@ let wakeLockSentinel = null;
 let alarmInterval = null;
 let alarmAudioCtx = null;
 let currentStudent = null;
+let isClearingData = false; // 👈 ক্লিয়ার করার সময় অটো-সেভ আটকানোর ফ্ল্যাগ
 
 function loadState(){
   try{
@@ -84,6 +85,7 @@ function loadState(){
 }
 
 function saveState(){
+  if (isClearingData) return; // 👈 ডাটা ক্লিয়ারিং চললে সেভ হবে না
   const persist = {
     tasks: state.tasks,
     focusSessions: state.focusSessions,
@@ -201,7 +203,7 @@ function renderStats(){
   if($("#sidebarStreak")) $("#sidebarStreak").textContent = `${streak} days`;
   if($("#sidebarTodayHours")) $("#sidebarTodayHours").textContent = formatMinutes(todayMinutes);
 
-  // Dashboard View (কার্ডের ওপর সরাসরি দেখা যাবে)
+  // Dashboard View
   if($("#dashTotalHours")) $("#dashTotalHours").textContent = formatMinutes(totalMinutesAllTime);
   if($("#dashTotalTasks")) $("#dashTotalTasks").textContent = totalTasksAllTime;
   if($("#dashTotalCompletedSameDay")) $("#dashTotalCompletedSameDay").textContent = totalCompletedSameDay;
@@ -616,7 +618,7 @@ function notify(title, body){
 }
 
 /* =============================================================================
-   📊 DASHBOARD INTERACTIVE DETAILS MODAL LOGIC (ক্লিক করলে পপ-আপে তালিকা দেখাবে)
+   📊 DASHBOARD INTERACTIVE DETAILS MODAL LOGIC
 ============================================================================= */
 function openDashboardDetail(type) {
   const modal = $("#dashDetailModal");
@@ -1390,9 +1392,15 @@ function bindEvents(){
     toast("Data imported");
   };
 
+  // 🧹 100% WORKING CLEAR DATA LOGIC
   $("#clearData").onclick = ()=>{
     if(confirm("Clear all saved study data? This cannot be undone.")){
+      isClearingData = true; // Stop auto-save trigger
       localStorage.removeItem(storageKey());
+      localStorage.removeItem(settingsKey());
+      state.tasks = [];
+      state.focusSessions = [];
+      state.calendar = {};
       location.reload();
     }
   };
