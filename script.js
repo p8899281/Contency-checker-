@@ -60,6 +60,7 @@ let alarmInterval = null;
 let alarmAudioCtx = null;
 let currentStudent = null;
 let isClearingData = false;
+let persistentNotification = null;
 
 function loadState(){
   try{
@@ -366,10 +367,41 @@ function renderSettings(){
   $("#fontSize").value = state.settings.fontSize;
 }
 
+/** 📲 UNBREAKABLE SYSTEM NOTIFICATION COUNTDOWN (YOUTUBE / BACKGROUND PROOF) */
+function updatePersistentSystemNotification(){
+  if("Notification" in window && Notification.permission === "granted"){
+    if(state.timer.running){
+      const title = `⏱️ ${formatTime(state.timer.remaining)} (${state.timer.phase.toUpperCase()})`;
+      const body = `Constancy Checker · Focus Session Active`;
+
+      try {
+        persistentNotification = new Notification(title, {
+          body: body,
+          tag: "constancy-timer-countdown", // 👈 Ensures same notification updates in-place without sound spam
+          renotify: false,
+          silent: true
+        });
+      } catch(e) {}
+    } else if(persistentNotification) {
+      persistentNotification.close();
+      persistentNotification = null;
+    }
+  }
+}
+
 function renderTimer(){
-  $("#timerDisplay").textContent = formatTime(state.timer.remaining);
-  $("#timerMode").textContent = state.timer.phase === "focus" ? "Focus" : "Break";
+  const timeFormatted = formatTime(state.timer.remaining);
+  const modeText = state.timer.phase === "focus" ? "Focus" : "Break";
+
+  $("#timerDisplay").textContent = timeFormatted;
+  $("#timerMode").textContent = modeText;
   
+  if(state.timer.running){
+    document.title = `⏱️ (${timeFormatted}) ${modeText} - constancy checker`;
+  } else {
+    document.title = `constancy checker by soumen`;
+  }
+
   const focusBtn = $("#switchToFocusBtn");
   const breakBtn = $("#switchToBreakBtn");
   const input = $("#customMinutes");
@@ -389,6 +421,7 @@ function renderTimer(){
   }
 
   updateMediaSessionMetadata();
+  updatePersistentSystemNotification();
 }
 
 function renderTimerActiveState(){
@@ -613,7 +646,9 @@ function switchView(view){
 
 function notify(title, body){
   if("Notification" in window && Notification.permission === "granted"){
-    new Notification(title, { body });
+    try {
+      new Notification(title, { body, icon: "/favicon.ico" });
+    } catch(e) {}
   }
 }
 
@@ -767,7 +802,6 @@ function createSilentAudioUrl() {
 }
 const SILENT_AUDIO_URL = createSilentAudioUrl();
 
-// 🔊 Guaranteed silent background keep-alive whenever timer is running
 function ensureSilentKeepAlive(){
   if(!silentKeepAliveAudio){
     silentKeepAliveAudio = new Audio(SILENT_AUDIO_URL);
@@ -806,37 +840,39 @@ function switchSoundTrack(direction) {
 
 function updateMediaSessionMetadata(){
   if ('mediaSession' in navigator && state.timer.running) {
-    let soundTitle = "No Sound";
+    let soundTitle = "Timer Running";
     if(state.focusSound.kind !== "none" && state.timer.phase === "focus"){
       const custom = state.customSounds.find(s => s.id === state.focusSound.kind || s.title === state.focusSound.kind);
       if(custom) soundTitle = custom.title;
     }
 
-    navigator.mediaSession.metadata = new MediaMetadata({
-      title: `⏱️ ${formatTime(state.timer.remaining)} (${state.timer.phase.toUpperCase()}) · ${soundTitle}`,
-      artist: 'Study with Nishtha · Ekagra',
-      album: 'Constancy Checker by Soumen'
-    });
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: `⏱️ ${formatTime(state.timer.remaining)} (${state.timer.phase.toUpperCase()}) · ${soundTitle}`,
+        artist: 'Study with Nishtha · Ekagra',
+        album: 'Constancy Checker by Soumen'
+      });
 
-    navigator.mediaSession.playbackState = userPausedSound ? 'paused' : 'playing';
+      navigator.mediaSession.playbackState = userPausedSound ? 'paused' : 'playing';
 
-    navigator.mediaSession.setActionHandler('play', () => {
-      userPausedSound = false;
-      ensureSilentKeepAlive();
-      if (activeCustomAudio) activeCustomAudio.play().catch(()=>{});
-      if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
-      updateFocusSoundForTimerState();
-    });
+      navigator.mediaSession.setActionHandler('play', () => {
+        userPausedSound = false;
+        ensureSilentKeepAlive();
+        if (activeCustomAudio) activeCustomAudio.play().catch(()=>{});
+        if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
+        updateFocusSoundForTimerState();
+      });
 
-    navigator.mediaSession.setActionHandler('pause', () => {
-      userPausedSound = true;
-      stopSilentKeepAlive();
-      if (activeCustomAudio) activeCustomAudio.pause();
-      if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
-    });
+      navigator.mediaSession.setActionHandler('pause', () => {
+        userPausedSound = true;
+        stopSilentKeepAlive();
+        if (activeCustomAudio) activeCustomAudio.pause();
+        if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
+      });
 
-    navigator.mediaSession.setActionHandler('previoustrack', () => switchSoundTrack(-1));
-    navigator.mediaSession.setActionHandler('nexttrack', () => switchSoundTrack(1));
+      navigator.mediaSession.setActionHandler('previoustrack', () => switchSoundTrack(-1));
+      navigator.mediaSession.setActionHandler('nexttrack', () => switchSoundTrack(1));
+    } catch(e) {}
   }
 }
 
@@ -893,7 +929,6 @@ function setFocusSoundVolume(v){
   if(activeCustomAudio) activeCustomAudio.volume = v;
 }
 
-/** 🔔 Always keep media session active if timer is running, regardless of focus sound selection */
 function updateFocusSoundForTimerState(){
   if (userPausedSound) return;
 
@@ -1305,6 +1340,7 @@ function bindEvents(){
     state.timer.running = true;
     startTimerLoop();
     requestWakeLock();
+    ensureSilentKeepAlive();
     updateFocusSoundForTimerState();
     autosave();
   };
@@ -1326,6 +1362,7 @@ function bindEvents(){
     state.timer.running = true;
     startTimerLoop();
     requestWakeLock();
+    ensureSilentKeepAlive();
     updateFocusSoundForTimerState();
     autosave();
   };
@@ -1416,6 +1453,7 @@ function bindEvents(){
   $$('input[name="theme"]').forEach(r=> r.addEventListener("change", e => { state.settings.theme = e.target.value; autosave(); }));
   $("#resetSettings").onclick = ()=>{ state.settings = { theme:"dark", fontSize:16 }; autosave(); };
 
+  // 🔄 YouTube or background app switch sync engine
   document.addEventListener("visibilitychange", ()=>{
     if(!document.hidden){
       evaluateTimer(true);
@@ -1425,6 +1463,14 @@ function bindEvents(){
       }
       renderAll();
     }
+  });
+
+  window.addEventListener("focus", ()=>{
+    evaluateTimer(true);
+    if(state.timer.running){
+      ensureSilentKeepAlive();
+    }
+    renderAll();
   });
 }
 
