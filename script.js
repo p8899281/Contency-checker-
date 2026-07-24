@@ -201,7 +201,7 @@ function renderStats(){
   if($("#sidebarStreak")) $("#sidebarStreak").textContent = `${streak} days`;
   if($("#sidebarTodayHours")) $("#sidebarTodayHours").textContent = formatMinutes(todayMinutes);
 
-  // Dashboard View
+  // Dashboard View (কার্ডের ওপর সরাসরি দেখা যাবে)
   if($("#dashTotalHours")) $("#dashTotalHours").textContent = formatMinutes(totalMinutesAllTime);
   if($("#dashTotalTasks")) $("#dashTotalTasks").textContent = totalTasksAllTime;
   if($("#dashTotalCompletedSameDay")) $("#dashTotalCompletedSameDay").textContent = totalCompletedSameDay;
@@ -616,6 +616,82 @@ function notify(title, body){
 }
 
 /* =============================================================================
+   📊 DASHBOARD INTERACTIVE DETAILS MODAL LOGIC (ক্লিক করলে পপ-আপে তালিকা দেখাবে)
+============================================================================= */
+function openDashboardDetail(type) {
+  const modal = $("#dashDetailModal");
+  const title = $("#dashDetailTitle");
+  const content = $("#dashDetailContent");
+
+  if(!modal || !title || !content) return;
+
+  if (type === "hours") {
+    title.textContent = "⏱️ Total Study Sessions (Date-Wise)";
+    const sessions = [...state.focusSessions].sort((a,b)=> (b.timestamp||0) - (a.timestamp||0));
+    content.innerHTML = sessions.length
+      ? renderTable(
+          ["Date", "Time", "Duration"],
+          sessions.map(s => [
+            s.date,
+            s.timestamp ? new Date(s.timestamp).toLocaleTimeString(undefined, {hour:"2-digit", minute:"2-digit"}) : "—",
+            formatMinutes(s.minutes || 0)
+          ])
+        )
+      : `<p class="empty-note">No study sessions logged yet.</p>`;
+
+  } else if (type === "tasks") {
+    title.textContent = "📌 All Tasks List";
+    const tasks = [...state.tasks].sort((a,b)=> b.createdAt.localeCompare(a.createdAt));
+    content.innerHTML = tasks.length
+      ? renderTable(
+          ["Created Date", "Completed Date", "Title", "Subject", "Status"],
+          tasks.map(t => [
+            t.createdAt,
+            t.completedAt || "—",
+            escapeHtml(t.title),
+            escapeHtml(t.subject),
+            t.done ? "✅ Completed" : "⏳ Pending"
+          ])
+        )
+      : `<p class="empty-note">No tasks created yet.</p>`;
+
+  } else if (type === "sameDay") {
+    title.textContent = "✅ Completed Tasks (Event Day)";
+    const sameDayTasks = state.tasks.filter(t => t.done && t.completedAt && t.completedAt === t.createdAt)
+                                    .sort((a,b)=> b.createdAt.localeCompare(a.createdAt));
+    content.innerHTML = sameDayTasks.length
+      ? renderTable(
+          ["Date", "Title", "Subject", "Priority"],
+          sameDayTasks.map(t => [
+            t.createdAt,
+            escapeHtml(t.title),
+            escapeHtml(t.subject),
+            t.priority
+          ])
+        )
+      : `<p class="empty-note">No same-day completed tasks found.</p>`;
+
+  } else if (type === "pending") {
+    title.textContent = "🔄 Completed Pending Tasks";
+    const pendingTasks = state.tasks.filter(t => t.done && t.completedAt && t.completedAt > t.createdAt)
+                                    .sort((a,b)=> b.completedAt.localeCompare(a.completedAt));
+    content.innerHTML = pendingTasks.length
+      ? renderTable(
+          ["Created Date", "Completed Date", "Title", "Subject"],
+          pendingTasks.map(t => [
+            t.createdAt,
+            t.completedAt,
+            escapeHtml(t.title),
+            escapeHtml(t.subject)
+          ])
+        )
+      : `<p class="empty-note">No pending completed tasks found.</p>`;
+  }
+
+  modal.hidden = false;
+}
+
+/* =============================================================================
    💾 INDEXEDDB OFFLINE SOUND CACHE ENGINE
 ============================================================================= */
 const DB_NAME = "SoumenFocusSoundDB";
@@ -779,7 +855,6 @@ async function startFocusSound(kind){
     try {
       let finalAudioSrc = customSound.audioUrl;
       
-      // 💾 Check Local Cached Audio for Offline Use
       const cachedBlobUrl = await getCachedAudioUrl(customSound.id);
       if (cachedBlobUrl) {
         finalAudioSrc = cachedBlobUrl;
@@ -793,7 +868,6 @@ async function startFocusSound(kind){
         focusSoundPlayingKind = kind;
         updateMediaSessionMetadata();
 
-        // 📥 If fetched online successfully for first time, Cache it locally for offline!
         if (!cachedBlobUrl && navigator.onLine) {
           fetch(customSound.audioUrl)
             .then(res => res.blob())
@@ -1064,6 +1138,19 @@ function startTimerLoop(){
 
 function bindEvents(){
   $$(".nav-item").forEach(btn => btn.addEventListener("click", () => switchView(btn.dataset.view)));
+
+  // Dashboard Click Event Listener
+  const cardHours = $("#cardTotalHours");
+  const cardTasks = $("#cardTotalTasks");
+  const cardSameDay = $("#cardCompletedSameDay");
+  const cardPending = $("#cardCompletedPending");
+  const dashCloseBtn = $("#dashDetailCloseBtn");
+
+  if(cardHours) cardHours.onclick = () => openDashboardDetail("hours");
+  if(cardTasks) cardTasks.onclick = () => openDashboardDetail("tasks");
+  if(cardSameDay) cardSameDay.onclick = () => openDashboardDetail("sameDay");
+  if(cardPending) cardPending.onclick = () => openDashboardDetail("pending");
+  if(dashCloseBtn) dashCloseBtn.onclick = () => { $("#dashDetailModal").hidden = true; };
 
   // Mode Switchers
   const focusBtn = $("#switchToFocusBtn");
