@@ -59,7 +59,7 @@ let wakeLockSentinel = null;
 let alarmInterval = null;
 let alarmAudioCtx = null;
 let currentStudent = null;
-let isClearingData = false; // 👈 ক্লিয়ার করার সময় অটো-সেভ আটকানোর ফ্ল্যাগ
+let isClearingData = false;
 
 function loadState(){
   try{
@@ -85,7 +85,7 @@ function loadState(){
 }
 
 function saveState(){
-  if (isClearingData) return; // 👈 ডাটা ক্লিয়ারিং চললে সেভ হবে না
+  if (isClearingData) return;
   const persist = {
     tasks: state.tasks,
     focusSessions: state.focusSessions,
@@ -767,12 +767,13 @@ function createSilentAudioUrl() {
 }
 const SILENT_AUDIO_URL = createSilentAudioUrl();
 
+// 🔊 Guaranteed silent background keep-alive whenever timer is running
 function ensureSilentKeepAlive(){
   if(!silentKeepAliveAudio){
     silentKeepAliveAudio = new Audio(SILENT_AUDIO_URL);
     silentKeepAliveAudio.loop = true;
   }
-  if(silentKeepAliveAudio.paused && state.timer.running){
+  if(silentKeepAliveAudio.paused && state.timer.running && !userPausedSound){
     silentKeepAliveAudio.play().catch(()=>{});
   }
 }
@@ -805,9 +806,11 @@ function switchSoundTrack(direction) {
 
 function updateMediaSessionMetadata(){
   if ('mediaSession' in navigator && state.timer.running) {
-    let soundTitle = "Focus Session";
-    const custom = state.customSounds.find(s => s.id === state.focusSound.kind || s.title === state.focusSound.kind);
-    if(custom) soundTitle = custom.title;
+    let soundTitle = "No Sound";
+    if(state.focusSound.kind !== "none" && state.timer.phase === "focus"){
+      const custom = state.customSounds.find(s => s.id === state.focusSound.kind || s.title === state.focusSound.kind);
+      if(custom) soundTitle = custom.title;
+    }
 
     navigator.mediaSession.metadata = new MediaMetadata({
       title: `⏱️ ${formatTime(state.timer.remaining)} (${state.timer.phase.toUpperCase()}) · ${soundTitle}`,
@@ -842,13 +845,11 @@ function stopFocusSound(){
     try{ activeCustomAudio.pause(); activeCustomAudio.currentTime = 0; }catch(e){}
     activeCustomAudio = null;
   }
-  stopSilentKeepAlive();
   focusSoundPlayingKind = null;
 }
 
 async function startFocusSound(kind){
   stopFocusSound();
-  ensureSilentKeepAlive();
 
   if(kind === "none") return;
 
@@ -892,20 +893,29 @@ function setFocusSoundVolume(v){
   if(activeCustomAudio) activeCustomAudio.volume = v;
 }
 
+/** 🔔 Always keep media session active if timer is running, regardless of focus sound selection */
 function updateFocusSoundForTimerState(){
   if (userPausedSound) return;
 
-  const desiredKind = state.focusSound.kind;
-  const shouldPlay = state.timer.running && state.timer.phase === "focus";
+  if (state.timer.running) {
+    ensureSilentKeepAlive();
+  } else {
+    stopSilentKeepAlive();
+  }
 
-  if(!shouldPlay){
-    if(focusSoundPlayingKind !== null) stopFocusSound();
+  const desiredKind = state.focusSound.kind;
+  const shouldPlaySound = state.timer.running && state.timer.phase === "focus" && desiredKind !== "none";
+
+  if(!shouldPlaySound){
+    if(activeCustomAudio) {
+      try{ activeCustomAudio.pause(); activeCustomAudio.currentTime = 0; }catch(e){}
+      activeCustomAudio = null;
+    }
+    focusSoundPlayingKind = null;
     return;
   }
 
-  ensureSilentKeepAlive();
-
-  if(desiredKind !== "none" && focusSoundPlayingKind !== desiredKind){
+  if(focusSoundPlayingKind !== desiredKind){
     startFocusSound(desiredKind);
   } else if(activeCustomAudio && activeCustomAudio.paused){
     activeCustomAudio.play().catch(() => {});
@@ -1295,7 +1305,6 @@ function bindEvents(){
     state.timer.running = true;
     startTimerLoop();
     requestWakeLock();
-    ensureSilentKeepAlive();
     updateFocusSoundForTimerState();
     autosave();
   };
@@ -1317,7 +1326,6 @@ function bindEvents(){
     state.timer.running = true;
     startTimerLoop();
     requestWakeLock();
-    ensureSilentKeepAlive();
     updateFocusSoundForTimerState();
     autosave();
   };
@@ -1392,10 +1400,9 @@ function bindEvents(){
     toast("Data imported");
   };
 
-  // 🧹 100% WORKING CLEAR DATA LOGIC
   $("#clearData").onclick = ()=>{
     if(confirm("Clear all saved study data? This cannot be undone.")){
-      isClearingData = true; // Stop auto-save trigger
+      isClearingData = true;
       localStorage.removeItem(storageKey());
       localStorage.removeItem(settingsKey());
       state.tasks = [];
