@@ -1,4 +1,4 @@
-/* constancy checker - service worker for persistent countdown notification */
+/* constancy checker - background worker for accurate timer & notifications */
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();
@@ -14,11 +14,10 @@ self.addEventListener("message", (event) => {
     
     if (running) {
       self.registration.showNotification(`⏱️ ${timeText} (${phase.toUpperCase()})`, {
-        body: "Constancy Checker · Focus Session Active",
+        body: "Constancy Checker · Timer Running in Background",
         tag: "constancy-focus-timer",
         renotify: false,
-        silent: true,
-        sticky: true
+        silent: true
       });
     } else {
       self.registration.getNotifications({ tag: "constancy-focus-timer" }).then((notifications) => {
