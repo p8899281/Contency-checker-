@@ -9,6 +9,16 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css" />
+  <style>
+    .clickable-card {
+      cursor: pointer;
+      transition: transform 0.15s ease, border-color 0.15s ease;
+    }
+    .clickable-card:hover {
+      transform: translateY(-2px);
+      border-color: var(--primary, #e8a33d) !important;
+    }
+  </style>
 </head>
 <body>
 
@@ -83,6 +93,21 @@
       <p class="modal-warning">Your timer is running. Click below to restore audio and focus sound.</p>
       <div class="modal-actions">
         <button class="btn primary" id="resumeSessionBtn" type="button">▶ Resume Focus Sound</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       DASHBOARD DETAIL POPUP MODAL
+  ============================================================= -->
+  <div class="modal-overlay" id="dashDetailModal" hidden>
+    <div class="modal-card glass" style="max-width: 680px; width: 92%; max-height: 85vh; display: flex; flex-direction: column;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+        <h3 id="dashDetailTitle" style="margin:0; font-family:var(--font-display);">Details</h3>
+        <button class="btn ghost" id="dashDetailCloseBtn" type="button">✕ Close</button>
+      </div>
+      <div id="dashDetailContent" class="table-scroll" style="flex:1; overflow-y:auto;">
+        <!-- Dynamic detail table -->
       </div>
     </div>
   </div>
@@ -239,14 +264,14 @@
         <section class="panel glass view" id="view-dashboard">
           <div class="section-title">
             <h3>Dashboard</h3>
-            <p>Overall Progress and All-Time Performance Summary.</p>
+            <p>Overall Summary (Click any card to see detailed breakdown).</p>
           </div>
 
           <div class="dashboard-list">
-            <div class="dash-item"><span>Total Study Hours</span><strong id="dashTotalHours">0h 0m</strong></div>
-            <div class="dash-item"><span>Total Tasks</span><strong id="dashTotalTasks">0</strong></div>
-            <div class="dash-item"><span>Total Completed Tasks Event Day</span><strong id="dashTotalCompletedSameDay">0</strong></div>
-            <div class="dash-item"><span>Total Completed Pending Tasks</span><strong id="dashTotalCompletedPending">0</strong></div>
+            <div class="dash-item clickable-card" id="cardTotalHours"><span>Total Study Hours</span><strong id="dashTotalHours">0h 0m</strong></div>
+            <div class="dash-item clickable-card" id="cardTotalTasks"><span>Total Tasks</span><strong id="dashTotalTasks">0</strong></div>
+            <div class="dash-item clickable-card" id="cardCompletedSameDay"><span>Total Completed Tasks Event Day</span><strong id="dashTotalCompletedSameDay">0</strong></div>
+            <div class="dash-item clickable-card" id="cardCompletedPending"><span>Total Completed Pending Tasks</span><strong id="dashTotalCompletedPending">0</strong></div>
             <div class="dash-item"><span>Study Streak</span><strong id="dashStreak">0 days</strong></div>
             <div class="dash-item"><span>Weekly Progress</span><strong id="dashWeeklyProgress">0%</strong></div>
             <div class="dash-item"><span>Monthly Progress</span><strong id="dashMonthlyProgress">0%</strong></div>
