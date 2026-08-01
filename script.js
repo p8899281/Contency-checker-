@@ -234,8 +234,8 @@ function renderStats(){
   const sixMonthMinutes = studyMinutesForRange(sixMonthStart, now);
   const totalMinutesAllTime = state.focusSessions.reduce((sum,s) => sum + (s.minutes || 0), 0);
 
-  const allDays = [...new Set(state.focusSessions.map(s => s.date))].length || 1;
-  const avg = Math.round(monthMinutes / allDays);
+  const totalStudyDays = [...new Set(state.focusSessions.map(s => s.date))].length || 1;
+  const avg = Math.round(totalMinutesAllTime / totalStudyDays);
 
   const completedTasks = state.tasks.filter(t => t.done).length;
   const totalTasksAllTime = state.tasks.length;
