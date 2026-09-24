@@ -1628,7 +1628,7 @@ function bindRevisionEvents(){
   const goal = $("#dailyGoalHours");
   if(goal) goal.addEventListener("change", (e) => {
     const v = Number(e.target.value);
-    if(!(v > 0) || v > 24){
+    if(!(v >= 0.5) || v > 24){
       e.target.value = getDailyGoalHours();
       toast("Enter a daily goal between 0.5 and 24 hours");
       return;
@@ -2317,6 +2317,7 @@ function bindEvents(){
         task.done = false;
         task.completedAt = null;
         delete task.revisionAnchor;
+        delete task.revisionStopAt;   // a fresh completion later should start a clean schedule, not stay capped by an old "Not Required"
         state.revisions = state.revisions.filter(r => r.taskId !== id);
         autosave();
       }
@@ -2489,11 +2490,22 @@ function bindEvents(){
   $("#importData").onchange = async (e)=>{
     const file = e.target.files[0];
     if(!file) return;
-    const text = await file.text();
-    const parsed = JSON.parse(text);
-    Object.assign(state, parsed);
-    autosave();
-    toast("Data imported");
+    try{
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      if(!parsed || typeof parsed !== "object") throw new Error("Not a valid backup file");
+      const arrayFields = ["tasks", "revisions", "focusSessions"];
+      for(const f of arrayFields) if(f in parsed && !Array.isArray(parsed[f])) throw new Error(`"${f}" is not a list`);
+      if("calendar" in parsed && (typeof parsed.calendar !== "object" || parsed.calendar === null || Array.isArray(parsed.calendar))) throw new Error('"calendar" is not valid');
+      Object.assign(state, parsed);
+      syncRevisions(true);
+      autosave();
+      toast("Data imported");
+    }catch(err){
+      toast("Import failed: " + (err.message || "invalid file"));
+    }finally{
+      e.target.value = "";   // allow re-selecting the same file again
+    }
   };
 
   $("#clearData").onclick = ()=>{
@@ -2838,7 +2850,7 @@ function renderAdminSounds(){
     <div style="display:flex; align-items:center; justify-content:space-between; background:var(--panel-2); padding:8px 12px; border-radius:12px; border:1px solid var(--line);">
       <span><strong>${escapeHtml(s.title)}</strong></span>
       <div style="display:flex; gap:10px; align-items:center;">
-        <audio controls src="${s.audioUrl}" style="height:28px; max-width:180px;"></audio>
+        <audio controls src="${escapeHtml(s.audioUrl)}" style="height:28px; max-width:180px;"></audio>
         <button class="btn danger admin-delete-btn" data-action="delete-sound" data-id="${s.id}" data-title="${escapeHtml(s.title)}">Delete</button>
       </div>
     </div>
